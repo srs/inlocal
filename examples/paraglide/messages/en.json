@@ -1,0 +1,18 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "auth_otp_sent": "We sent a code to {email}",
+  "parts_upload_title": "Upload a 3D model",
+  "printers_status_offline": "Offline since {time}",
+  "relay_discovered": "Found {n} printers on your network",
+  "settings_vault_name": "Vault name",
+  "parts_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} part",
+        "countPlural=other": "{count} parts"
+      }
+    }
+  ]
+}

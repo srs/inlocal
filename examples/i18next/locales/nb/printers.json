@@ -1,0 +1,12 @@
+{
+  "status": {
+    "online": "Tilkoblet",
+    "offline": "Frakoblet siden {{time}}",
+    "printing": "Skriver ut {{file}}"
+  },
+  "discovered_one": "Fant {{count}} printer på nettverket",
+  "discovered_other": "Fant {{count}} printere på nettverket",
+  "actions": {
+    "pause": "Sett utskrift på pause"
+  }
+}

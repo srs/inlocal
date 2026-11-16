@@ -1,0 +1,7 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "auth_otp_sent": "Wir haben einen Code an {email} gesendet",
+  "parts_upload_title": "3D-Modell hochladen",
+  "printers_status_offline": "Offline seit",
+  "settings_vault_name": "Vault-Name"
+}

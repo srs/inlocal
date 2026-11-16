@@ -1,0 +1,13 @@
+{
+  "status": {
+    "online": "Online",
+    "offline": "Offline since {{time}}",
+    "printing": "Printing {{file}} ({{progress}}%)"
+  },
+  "discovered_one": "Found {{count}} printer on your network",
+  "discovered_other": "Found {{count}} printers on your network",
+  "actions": {
+    "pause": "Pause print",
+    "resume": "Resume print"
+  }
+}

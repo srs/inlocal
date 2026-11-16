@@ -1,0 +1,16 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "auth_otp_sent": "Vi skickade en kod till {email}",
+  "parts_upload_title": "Ladda upp en 3D-modell",
+  "settings_vault_name": "Vaultnamn",
+  "parts_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} del",
+        "countPlural=other": ""
+      }
+    }
+  ]
+}

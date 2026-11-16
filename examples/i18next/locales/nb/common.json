@@ -1,0 +1,7 @@
+{
+  "nav": {
+    "parts": "Deler"
+  },
+  "greeting": "Hei {{navn}}",
+  "items_one": "{{count}} element"
+}

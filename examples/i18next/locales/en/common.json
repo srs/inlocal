@@ -1,0 +1,9 @@
+{
+  "nav": {
+    "parts": "Parts",
+    "printers": "Printers"
+  },
+  "greeting": "Hello {{name}}",
+  "items_one": "{{count}} item",
+  "items_other": "{{count}} items"
+}

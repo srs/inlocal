@@ -1,0 +1,14 @@
+{
+  "$schema": "https://inlang.com/schema/project-settings",
+  "baseLocale": "en",
+  "locales": ["en", "nb"],
+  "modules": [
+    "https://cdn.jsdelivr.net/npm/@inlang/plugin-i18next@6/dist/index.js"
+  ],
+  "plugin.inlang.i18next": {
+    "pathPattern": {
+      "common": "./locales/{locale}/common.json",
+      "printers": "./locales/{locale}/printers.json"
+    }
+  }
+}

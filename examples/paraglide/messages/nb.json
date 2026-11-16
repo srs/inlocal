@@ -1,0 +1,18 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "auth_otp_sent": "Vi sendte en kode til {email}",
+  "parts_upload_title": "Last opp en 3D-modell",
+  "printers_status_offline": "Frakoblet siden {time}",
+  "relay_discovered": "Fant {n} printere på nettverket",
+  "settings_vault_name": "Navn på vault",
+  "parts_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} del",
+        "countPlural=other": "{count} deler"
+      }
+    }
+  ]
+}

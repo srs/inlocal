@@ -1,0 +1,30 @@
+[package]
+name = "inlocal"
+version = "0.1.0"
+edition = "2021"
+description = "A local, open-source translation editor for inlang projects"
+license = "MIT"
+repository = "https://github.com/srs/inlocal"
+keywords = ["i18n", "inlang", "translation", "paraglide", "i18next"]
+categories = ["command-line-utilities", "internationalization"]
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+mime_guess = "2"
+notify = "8"
+open = "5"
+regex = "1"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+strip = true
