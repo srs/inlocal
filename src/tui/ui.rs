@@ -1,12 +1,13 @@
 //! Drawing the TUI. Pure rendering: reads `App`, never changes it.
 
-use inlocal_core::{display_variant, FieldKey, Filter, Status};
+use crate::core::{display_variant, FieldKey, Filter, Status};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table, TableState,
 };
+
 use ratatui::Frame;
 
 use super::app::{App, ConfirmAction, Focus, View};
@@ -80,6 +81,7 @@ fn draw_top_bar(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let edits = app.session.edit_count();
+
     let right = if edits > 0 {
         Line::from(Span::styled(
             format!("{edits} unsaved  "),
@@ -99,6 +101,7 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(section("Filters"));
+
     for (ix, filter) in Filter::ALL.into_iter().enumerate() {
         let active = app.filter == filter;
         let count = app.session.count(filter);
@@ -112,6 +115,7 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     lines.push(Line::raw(""));
     lines.push(section("Locales"));
+
     for locale in app.locales() {
         let percent = match app.session.stats(&locale) {
             Some(s) if s.total > 0 => s.translated * 100 / s.total,
@@ -132,6 +136,7 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let namespaces = app.namespaces();
+
     if !namespaces.is_empty() {
         lines.push(Line::raw(""));
         lines.push(section("Namespaces  (n)"));
@@ -180,6 +185,7 @@ fn draw_list(frame: &mut Frame, app: &App, area: Rect) {
     if app.visible.is_empty() {
         let empty = Paragraph::new(Line::styled("  No messages match.", Style::new().fg(DIM)));
         frame.render_widget(empty.block(block), area);
+
         return;
     }
 
@@ -266,6 +272,7 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             ""
         };
+
         let locale_style = if key.locale == base {
             Style::new().fg(ACCENT)
         } else {
@@ -283,6 +290,7 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
             let variant = display_variant(&key.variant);
             spans.push(Span::styled(format!("{variant:<7}"), Style::new().fg(DIM)));
         }
+
         let gutter_width = Line::from(spans.clone()).width() as u16;
 
         // The text, the text being edited, or a placeholder.
@@ -297,11 +305,13 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
                 let source = app
                     .session
                     .value(&FieldKey::new(&key.id, &key.variant, &base));
+
                 let placeholder = if source.is_empty() {
                     "—".to_string()
                 } else {
                     one_line(&source)
                 };
+
                 spans.push(Span::styled(placeholder, Style::new().fg(DIM).italic()));
             } else {
                 spans.push(Span::styled(one_line(&value), text_style));
@@ -311,6 +321,7 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
         if selected {
             selected_line = lines.len();
         }
+
         lines.push(Line::from(spans));
 
         // Issues for this field.
@@ -358,6 +369,7 @@ fn with_cursor(input: &TextInput) -> Vec<Span<'static>> {
     let (before, after) = input.split_at_cursor();
 
     let mut rest = after.chars();
+
     let under = match rest.next() {
         Some('\n') => "⏎".to_string(),
         Some(c) => c.to_string(),
@@ -398,6 +410,7 @@ fn draw_compare(frame: &mut Frame, app: &App, area: Rect) {
         };
 
         frame.render_widget(Line::styled(text, Style::new().fg(DIM)), table_area);
+
         return;
     }
 
@@ -508,7 +521,9 @@ fn draw_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
             ),
             Span::raw("  y yes   any other key: no"),
         ]);
+
         frame.render_widget(line, area);
+
         return;
     }
 
@@ -517,7 +532,9 @@ fn draw_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
             " Files changed on disk while you have unsaved edits. r reloads (drops edits), s saves yours.",
             Style::new().fg(WARN),
         );
+
         frame.render_widget(line, area);
+
         return;
     }
 
@@ -525,12 +542,15 @@ fn draw_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
         (Focus::List, View::Focus) => {
             "j/k move  enter edit  / search  1-4 filter  n namespace  v compare  s save  q quit"
         }
+
         (Focus::List, View::Compare) => {
             "j/k move  enter edit  c copy  f/t languages  m only missing  v focus view  s save  q quit"
         }
+
         (Focus::Fields, _) => {
             "j/k field  J/K message  enter edit  c copy source  x clear  esc back  s save"
         }
+
         (Focus::Editing, _) => "enter keep  esc cancel  alt+enter newline  ctrl+u clear",
         (Focus::Search, _) => "type to filter  enter done  esc clear",
         (Focus::Confirm(_), _) => "",

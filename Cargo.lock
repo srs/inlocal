@@ -826,27 +826,17 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "inlocal-core",
  "mime_guess",
  "notify",
  "open",
  "ratatui",
+ "regex",
  "rust-embed",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-stream",
-]
-
-[[package]]
-name = "inlocal-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
 ]
 
 [[package]]

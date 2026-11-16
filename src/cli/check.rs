@@ -2,9 +2,9 @@
 
 use std::process::ExitCode;
 
+use crate::core::checks::{self, Issue};
+use crate::core::{display_variant, Project};
 use anyhow::{bail, Result};
-use inlocal_core::checks::{self, Issue};
-use inlocal_core::{display_variant, Project};
 
 use super::{percent, OutputFormat};
 

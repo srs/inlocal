@@ -45,10 +45,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { "content-type": "application/json", "x-inlocal": "1", ...init?.headers },
   });
+
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
+
   return res.json();
 }
 

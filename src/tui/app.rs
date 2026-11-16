@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use inlocal_core::session::is_missing;
-use inlocal_core::{FieldKey, Filter, Message, Session};
+use crate::core::session::is_missing;
+use crate::core::{FieldKey, Filter, Message, Session};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::input::TextInput;
@@ -130,6 +130,7 @@ impl App {
         };
 
         let mut keys = Vec::new();
+
         for locale in self.locales() {
             for variant in &message.variants {
                 keys.push(FieldKey::new(&message.id, variant, &locale));
@@ -210,11 +211,13 @@ impl App {
         // Save works everywhere except while typing in a field.
         if ctrl && key.code == KeyCode::Char('s') && self.focus != Focus::Editing {
             self.save();
+
             return;
         }
 
         if ctrl && key.code == KeyCode::Char('c') {
             self.request(ConfirmAction::Quit);
+
             return;
         }
 
@@ -307,6 +310,7 @@ impl App {
             View::Focus => View::Compare,
             View::Compare => View::Focus,
         };
+
         self.focus = Focus::List;
         self.row = 0;
     }
@@ -337,6 +341,7 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.field = (self.field + 1).min(count.saturating_sub(1));
             }
+
             KeyCode::Char('k') | KeyCode::Up => self.field = self.field.saturating_sub(1),
 
             KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char('i') => self.start_editing(),
@@ -367,6 +372,7 @@ impl App {
                 self.set_current(self.editor.text().to_string());
                 self.focus = self.focus_after_editing();
             }
+
             KeyCode::Esc => self.focus = self.focus_after_editing(),
 
             KeyCode::Char('u') if ctrl => self.editor.clear(),
@@ -391,6 +397,7 @@ impl App {
                 self.search.clear();
                 self.focus = Focus::List;
             }
+
             KeyCode::Char(c) => self.search.insert(c),
             KeyCode::Backspace => self.search.backspace(),
             KeyCode::Left => self.search.left(),
@@ -430,6 +437,7 @@ impl App {
                 self.refresh_visible();
                 self.message = Some("Edits discarded".into());
             }
+
             ConfirmAction::Reload => {
                 self.session.discard();
                 self.reload();
@@ -454,6 +462,7 @@ impl App {
 
     fn cycle_namespace(&mut self) {
         let namespaces = self.namespaces();
+
         if namespaces.is_empty() {
             return;
         }
@@ -479,6 +488,7 @@ impl App {
         let needs_work = fields
             .iter()
             .position(|key| !self.session.field_issues(key).is_empty());
+
         let first_target = fields.iter().position(|key| key.locale != *base);
 
         needs_work.or(first_target).unwrap_or(0)
@@ -522,8 +532,10 @@ impl App {
 
     fn save(&mut self) {
         let count = self.session.edit_count();
+
         if count == 0 {
             self.message = Some("Nothing to save".into());
+
             return;
         }
 

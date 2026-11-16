@@ -21,10 +21,11 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
-use inlocal_core::checks::{self, Issue, LocaleStats};
+use crate::core::checks::{self, Issue, LocaleStats};
 
 use crate::browser;
-use inlocal_core::{Edit, Message, Project};
+use crate::core::project::{Edit, FileSet, Format};
+use crate::core::{Message, Project};
 
 #[derive(RustEmbed)]
 #[folder = "ui/dist"]
@@ -43,8 +44,8 @@ struct ProjectInfo<'a> {
     project_dir: String,
     base_locale: &'a str,
     locales: &'a [String],
-    format: inlocal_core::Format,
-    files: &'a [inlocal_core::FileSet],
+    format: Format,
+    files: &'a [FileSet],
     git_branch: Option<String>,
 }
 
@@ -96,6 +97,7 @@ async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
         project: project.clone(),
         changes,
     };
+
     let app = Router::new()
         .route("/api/project", get(project_info))
         .route("/api/messages", get(messages))
@@ -124,6 +126,7 @@ async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
     println!("inlocal  {}", project.dir.display());
     println!("         {url}");
     println!("         press Ctrl+C to stop");
+
     if open_browser {
         browser::show(&url);
     }
@@ -135,17 +138,20 @@ async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
         res = axum::serve(listener, app) => res?,
         _ = tokio::signal::ctrl_c() => println!("\nstopped"),
     }
+
     Ok(())
 }
 
 async fn bind(port: u16) -> Result<tokio::net::TcpListener> {
     let mut last_err = None;
+
     for p in port..port.saturating_add(20) {
         match tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], p))).await {
             Ok(l) => return Ok(l),
             Err(e) => last_err = Some(e),
         }
     }
+
     Err(anyhow::anyhow!(
         "no free port from {port}: {}",
         last_err.map(|e| e.to_string()).unwrap_or_default()
@@ -161,13 +167,17 @@ async fn guard(headers: HeaderMap, req: Request, next: Next) -> Response {
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
+
     let hostname = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+
     if !matches!(hostname, "localhost" | "127.0.0.1" | "[::1]") {
         return (StatusCode::FORBIDDEN, "forbidden host").into_response();
     }
+
     if req.method() != Method::GET && headers.get("x-inlocal").is_none() {
         return (StatusCode::FORBIDDEN, "missing x-inlocal header").into_response();
     }
+
     next.run(req).await
 }
 
@@ -178,6 +188,7 @@ async fn project_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+
     let info = ProjectInfo {
         name,
         project_dir: p.dir.display().to_string(),
@@ -187,6 +198,7 @@ async fn project_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         files: &p.files,
         git_branch: git_branch(&p.root),
     };
+
     Json(serde_json::to_value(info).expect("serializable"))
 }
 
@@ -199,12 +211,14 @@ async fn save(
     Json(req): Json<SaveRequest>,
 ) -> Result<Json<MessagesResponse>, ApiError> {
     s.project.apply_edits(&req.edits)?;
+
     Ok(Json(load(&s.project)?))
 }
 
 fn load(project: &Project) -> anyhow::Result<MessagesResponse> {
     let catalog = project.read_messages()?;
     let report = checks::run(project, &catalog);
+
     Ok(MessagesResponse {
         messages: catalog.messages,
         issues: report.issues,
@@ -217,12 +231,15 @@ async fn events(
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
     let stream = BroadcastStream::new(s.changes.subscribe())
         .map(|_| Ok(Event::default().event("changed").data("files")));
+
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn static_file(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
+
     let path = if path.is_empty() { "index.html" } else { path };
+
     let (path, file) = match Assets::get(path) {
         Some(f) => (path, f),
         None => match Assets::get("index.html") {
@@ -236,6 +253,7 @@ async fn static_file(uri: Uri) -> Response {
             }
         },
     };
+
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     (
         [(header::CONTENT_TYPE, mime.as_ref().to_string())],
@@ -261,8 +279,10 @@ fn watch(project: &Project, changes: broadcast::Sender<()>) -> Result<notify::Re
         .iter()
         .filter_map(|f| f.parent().map(|p| p.to_path_buf()))
         .collect();
+
     dirs.sort();
     dirs.dedup();
+
     for dir in dirs {
         if dir.exists() {
             watcher.watch(&dir, RecursiveMode::NonRecursive)?;
@@ -272,16 +292,19 @@ fn watch(project: &Project, changes: broadcast::Sender<()>) -> Result<notify::Re
     tokio::spawn(async move {
         while rx.recv().await.is_some() {
             tokio::time::sleep(Duration::from_millis(150)).await;
+
             while rx.try_recv().is_ok() {}
             let _ = changes.send(());
         }
     });
+
     Ok(watcher)
 }
 
 fn git_branch(root: &std::path::Path) -> Option<String> {
     for dir in root.ancestors() {
         let head = dir.join(".git/HEAD");
+
         if let Ok(text) = std::fs::read_to_string(head) {
             return Some(
                 text.trim()
@@ -291,5 +314,6 @@ fn git_branch(root: &std::path::Path) -> Option<String> {
             );
         }
     }
+
     None
 }

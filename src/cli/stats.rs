@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 
+use crate::core::checks::{self, IssueKind};
+use crate::core::Project;
 use anyhow::{bail, Result};
-use inlocal_core::checks::{self, IssueKind};
-use inlocal_core::Project;
 use serde::Serialize;
 
 use super::percent;
@@ -67,11 +67,14 @@ pub fn run(project: &Project, json: bool) -> Result<ExitCode> {
             "locales": report.stats,
             "namespaces": by_namespace,
         });
+
         println!("{}", serde_json::to_string_pretty(&out)?);
+
         return Ok(ExitCode::SUCCESS);
     }
 
     print_table(project, &report.stats, &by_namespace);
+
     Ok(ExitCode::SUCCESS)
 }
 
@@ -85,9 +88,11 @@ fn print_table(
 
     // Header.
     print!("{:<20}", "");
+
     for locale in locales {
         print!("{locale:>9}");
     }
+
     println!();
 
     // One row per namespace.
@@ -99,6 +104,7 @@ fn print_table(
                 let c = coverage.get(locale).copied().unwrap_or_default();
                 print!("{:>8.0}%", percent(c.translated, c.total));
             }
+
             println!();
         }
 
@@ -107,13 +113,16 @@ fn print_table(
 
     // Totals.
     print!("{:<20}", "total");
+
     for locale in locales {
         let pct = totals
             .get(locale)
             .map(|s| percent(s.translated, s.total))
             .unwrap_or(100.0);
+
         print!("{pct:>8.0}%");
     }
+
     println!();
 }
 
@@ -135,6 +144,7 @@ pub fn missing(project: &Project, locale: &str) -> Result<ExitCode> {
         .filter(|i| matches!(i.kind, IssueKind::Missing | IssueKind::MissingPlural))
         .map(|i| i.id.as_str())
         .collect();
+
     ids.dedup();
 
     for id in &ids {

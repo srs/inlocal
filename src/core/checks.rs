@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use regex::Regex;
 use serde::Serialize;
 
-use crate::project::{Catalog, Format, Project};
+use super::project::{Catalog, Format, Project};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,8 +47,10 @@ pub fn variable_names(format: Format, text: &str) -> Vec<String> {
     let re = Regex::new(format.variable_regex()).expect("valid regex");
 
     let mut names: Vec<String> = Vec::new();
+
     for capture in re.captures_iter(text) {
         let name = capture[1].to_string();
+
         if !names.contains(&name) {
             names.push(name);
         }
@@ -61,6 +63,7 @@ pub fn run(project: &Project, catalog: &Catalog) -> Report {
     let format = project.format;
     let vars =
         |text: &str| -> BTreeSet<String> { variable_names(format, text).into_iter().collect() };
+
     let base = &project.base_locale;
 
     let mut issues = Vec::new();
@@ -82,18 +85,22 @@ pub fn run(project: &Project, catalog: &Catalog) -> Report {
         let Some(base_values) = msg.values.get(base) else {
             continue;
         };
+
         for locale in &project.locales {
             let values = msg.values.get(locale);
             let has_any = values.is_some_and(|v| v.values().any(|t| !t.is_empty()));
+
             for variant in &msg.variants {
                 let Some(source) = base_values.get(variant).filter(|s| !s.is_empty()) else {
                     continue;
                 };
+
                 let stat = stats.get_mut(locale).expect("seeded");
                 stat.total += 1;
                 let text = values
                     .and_then(|v| v.get(variant))
                     .filter(|t| !t.is_empty());
+
                 let Some(text) = text else {
                     if locale != base {
                         let (kind, message) = if !variant.is_empty() && has_any {
@@ -107,6 +114,7 @@ pub fn run(project: &Project, catalog: &Catalog) -> Report {
                         } else {
                             (IssueKind::Missing, "Missing translation".to_string())
                         };
+
                         issues.push(Issue {
                             id: msg.id.clone(),
                             locale: locale.clone(),
@@ -116,14 +124,19 @@ pub fn run(project: &Project, catalog: &Catalog) -> Report {
                             variable: None,
                         });
                     }
+
                     continue;
                 };
+
                 stat.translated += 1;
+
                 if locale == base {
                     continue;
                 }
+
                 let expected = vars(source);
                 let actual = vars(text);
+
                 for v in expected.difference(&actual) {
                     issues.push(Issue {
                         id: msg.id.clone(),
@@ -134,6 +147,7 @@ pub fn run(project: &Project, catalog: &Catalog) -> Report {
                         variable: Some(v.clone()),
                     });
                 }
+
                 for v in actual.difference(&expected) {
                     issues.push(Issue {
                         id: msg.id.clone(),
@@ -147,6 +161,7 @@ pub fn run(project: &Project, catalog: &Catalog) -> Report {
             }
         }
     }
+
     Report { issues, stats }
 }
 

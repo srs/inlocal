@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import {
   AlertTriangle, CircleDashed, Copy, FileCode2, Folder, GitBranch, ArrowLeftRight, ChevronDown, Languages, LayoutList, List, Pencil, Plus, Radio, Search, Table2, Undo2,
 } from "lucide-react";
+
 import { api, type Edit, type Issue, type Message, type MessagesResponse, type ProjectInfo } from "./api";
 import { checkField, displayVariant, formatVariable, variables } from "./checks";
 
@@ -39,12 +40,14 @@ export function App() {
   const [onlyMissing, setOnlyMissing] = useState(false);
   const setView = useCallback((v: View) => {
     setViewState(v);
+
     try {
       localStorage.setItem("inlocal.view", v);
     } catch {
       /* storage unavailable */
     }
   }, []);
+
   const searchRef = useRef<HTMLInputElement>(null);
   const editsRef = useRef(edits);
   editsRef.current = edits;
@@ -71,8 +74,10 @@ export function App() {
     es.onerror = () => setLive(false);
     es.addEventListener("changed", () => {
       if (Object.keys(editsRef.current).length === 0) reload();
+
       else setExternalChange(true);
     });
+
     return () => es.close();
   }, [reload]);
 
@@ -93,9 +98,11 @@ export function App() {
     (m: Message, locale: string, variant: string) => m.values[locale]?.[variant] ?? "",
     [],
   );
+
   const valueOf = useCallback(
     (m: Message, locale: string, variant: string) => {
       const k = fieldKey(m.id, variant, locale);
+
       return k in edits ? edits[k] : original(m, locale, variant);
     },
     [edits, original],
@@ -104,38 +111,53 @@ export function App() {
   // Issues per message: server issues, replaced by client checks for edited fields.
   const issuesById = useMemo(() => {
     const map = new Map<string, Issue[]>();
+
     if (!data) return map;
+
     for (const i of data.issues) {
       if (fieldKey(i.id, i.variant, i.locale) in edits) continue;
+
       map.set(i.id, [...(map.get(i.id) ?? []), i]);
     }
+
     for (const k of Object.keys(edits)) {
       const [id, variant, locale] = k.split(SEP);
       const msg = data.messages.find((m) => m.id === id);
+
       if (!msg) continue;
+
       const hasAny = msg.variants.some((v) => v !== variant && valueOf(msg, locale, v));
       const found = checkField(msg, locale, variant, edits[k], base, format, hasAny);
+
       if (found.length) map.set(id, [...(map.get(id) ?? []), ...found]);
     }
+
     return map;
   }, [data, edits, base, format, valueOf]);
 
   const changedIds = useMemo(() => {
     const ids = new Set<string>();
+
     if (!data) return ids;
+
     for (const k of Object.keys(edits)) {
       const [id, variant, locale] = k.split(SEP);
       const msg = data.messages.find((m) => m.id === id);
+
       if (msg && edits[k] !== original(msg, locale, variant)) ids.add(id);
     }
+
     return ids;
   }, [data, edits, original]);
 
   const statusOf = useCallback(
     (id: string): Status => {
       if (changedIds.has(id)) return "changed";
+
       const issues = issuesById.get(id) ?? [];
+
       if (issues.some((i) => i.kind === "missing" || i.kind === "missingPlural")) return "missing";
+
       return issues.length ? "warn" : "ok";
     },
     [changedIds, issuesById],
@@ -148,23 +170,31 @@ export function App() {
 
   const visible = useMemo(() => {
     if (!data) return [];
+
     const q = query.trim().toLowerCase();
+
     return data.messages.filter((m) => {
       if (namespace && !m.id.startsWith(`${namespace}:`)) return false;
+
       const issues = issuesById.get(m.id) ?? [];
+
       if (filter === "attention" && issues.length === 0) return false;
       if (filter === "missing" && !issues.some((i) => i.kind === "missing" || i.kind === "missingPlural")) return false;
       if (filter === "changed" && !changedIds.has(m.id)) return false;
+
       if (view === "table" && onlyMissing && toLocale !== "*" &&
         !issues.some((i) => i.locale === toLocale && (i.kind === "missing" || i.kind === "missingPlural"))) return false;
+
       if (!q) return true;
       if (m.id.toLowerCase().includes(q)) return true;
+
       return Object.values(m.values).some((v) => Object.values(v).some((t) => t.toLowerCase().includes(q)));
     });
   }, [data, query, filter, namespace, issuesById, changedIds, view, onlyMissing, toLocale]);
 
   const counts = useMemo(() => {
     const all = data?.messages ?? [];
+
     return {
       all: all.length,
       attention: all.filter((m) => (issuesById.get(m.id) ?? []).length > 0).length,
@@ -183,20 +213,28 @@ export function App() {
     const k = fieldKey(m.id, variant, locale);
     setEdits((prev) => {
       const next = { ...prev };
+
       if (value === original(m, locale, variant)) delete next[k];
+
       else next[k] = value;
+
       return next;
     });
   };
 
   const save = useCallback(async () => {
     const entries = Object.entries(editsRef.current);
+
     if (!entries.length || saving) return;
+
     const payload: Edit[] = entries.map(([k, value]) => {
       const [id, variant, locale] = k.split(SEP);
+
       return { id, variant, locale, value: value === "" ? null : value };
     });
+
     setSaving(true);
+
     try {
       setData(await api.save(payload));
       setEdits({});
@@ -213,31 +251,43 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
+
         return;
       }
+
       if (mod && e.key === "\\") {
         e.preventDefault();
         setView(view === "focus" ? "table" : "focus");
+
         return;
       }
+
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         save();
+
         return;
       }
+
       const target = e.target as HTMLElement;
       const typing = target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && target !== searchRef.current);
+
       if (typing || view === "table") return;
+
       if (e.key === "Escape" && target === searchRef.current) {
         searchRef.current?.blur();
+
         return;
       }
+
       const step = e.key === "ArrowDown" || (e.key === "j" && target !== searchRef.current) ? 1
         : e.key === "ArrowUp" || (e.key === "k" && target !== searchRef.current) ? -1 : 0;
+
       if (step && visible.length) {
         e.preventDefault();
         const i = visible.findIndex((m) => m.id === selected);
@@ -246,7 +296,9 @@ export function App() {
         document.getElementById(`row-${next.id}`)?.scrollIntoView({ block: "nearest" });
       }
     };
+
     window.addEventListener("keydown", onKey);
+
     return () => window.removeEventListener("keydown", onKey);
   }, [save, visible, selected, view, setView]);
 
@@ -255,7 +307,9 @@ export function App() {
     const onUnload = (e: BeforeUnloadEvent) => {
       if (Object.keys(editsRef.current).length) e.preventDefault();
     };
+
     window.addEventListener("beforeunload", onUnload);
+
     return () => window.removeEventListener("beforeunload", onUnload);
   }, []);
 
@@ -330,6 +384,7 @@ export function App() {
             {locales.map((l) => {
               const s = data.stats[l];
               const pct = s && s.total ? Math.floor((s.translated / s.total) * 100) : 100;
+
               return (
                 <button
                   key={l}
@@ -337,8 +392,11 @@ export function App() {
                   title={hidden.has(l) ? "Show locale" : "Hide locale"}
                   onClick={() => {
                     if (l === base) return;
+
                     const next = new Set(hidden);
+
                     if (next.has(l)) next.delete(l);
+
                     else next.add(l);
                     setHidden(next);
                   }}
@@ -384,6 +442,7 @@ export function App() {
                   disabled={toLocale === "*"}
                   onClick={() => {
                     if (toLocale === "*") return;
+
                     setCompareFrom(toLocale);
                     setCompareTo(fromLocale);
                   }}
@@ -430,6 +489,7 @@ export function App() {
             {visible.length === 0 && <div className="empty">No messages match.</div>}
             {visible.map((m) => {
               const preview = valueOf(m, base, m.variants[m.variants.length - 1] ?? "");
+
               return (
                 <div
                   key={m.id}
@@ -509,6 +569,7 @@ function MessageEditor(props: {
             {msg.variants.map((variant) => {
               const fieldIssues = issues.filter((i) => i.locale === locale && i.variant === variant);
               const source = valueOf(msg, base, variant);
+
               return (
                 <div key={variant}>
                   <div className={plural ? "variant" : undefined}>
@@ -568,10 +629,13 @@ function AutoField(props: {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
+
     if (!el) return;
+
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight + 2}px`;
   }, [props.value]);
+
   return (
     <textarea
       ref={ref}
@@ -599,7 +663,9 @@ function TableView(props: {
   onOpen: (id: string) => void;
 }) {
   const { messages, locales, base, issuesById, statusOf, valueOf, isChanged, setField, onOpen } = props;
+
   if (messages.length === 0) return <div className="table-wrap"><div className="empty">No messages match.</div></div>;
+
   return (
     <div className="table-wrap">
       <table className="grid" style={{ minWidth: 260 + locales.length * 240 }}>
@@ -621,6 +687,7 @@ function TableView(props: {
         {messages.map((m) => {
           const issues = issuesById.get(m.id) ?? [];
           const plural = m.variants.length > 1 || (m.variants[0] ?? "") !== "";
+
           return (
             <tbody key={m.id} className="msg">
               {m.variants.map((variant, vi) => (
@@ -638,6 +705,7 @@ function TableView(props: {
                     const cellIssues = issues.filter((i) => i.locale === l && i.variant === variant);
                     const source = valueOf(m, base, variant);
                     const missing = cellIssues.some((i) => i.kind === "missing" || i.kind === "missingPlural");
+
                     return (
                       <td key={l}>
                         <div className="cell">
@@ -688,12 +756,15 @@ function FilesStatus(props: {
 
   useEffect(() => {
     if (!open) return;
+
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
+
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", esc);
+
     return () => {
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", esc);
@@ -701,6 +772,7 @@ function FilesStatus(props: {
   }, [open]);
 
   const active = namespace ? files.find((f) => f.namespace === namespace) : files.length === 1 ? files[0] : null;
+
   if (active && files.length === 1) {
     return (
       <span className="status-item" title={active.pathPattern}>
@@ -708,6 +780,7 @@ function FilesStatus(props: {
       </span>
     );
   }
+
   return (
     <div className="status-pop" ref={ref}>
       <button className="status-item status-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -722,6 +795,7 @@ function FilesStatus(props: {
               title={`Show only ${f.namespace}`}
               onClick={() => {
                 if (f.namespace) onSelect(f.namespace);
+
                 setOpen(false);
               }}
             >

@@ -1,6 +1,7 @@
 #[cfg(feature = "web")]
 mod browser;
 mod cli;
+mod core;
 #[cfg(feature = "web")]
 mod server;
 mod tui;

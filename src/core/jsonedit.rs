@@ -59,6 +59,7 @@ impl Node {
             (Node::Object { entries, .. }, Seg::Key(k)) => {
                 entries.iter().find(|e| &e.key == k).map(|e| &e.value)
             }
+
             (Node::Array { items, .. }, Seg::Index(i)) => items.get(*i),
             _ => None,
         }
@@ -66,9 +67,11 @@ impl Node {
 
     pub fn at(&self, path: &[Seg]) -> Option<&Node> {
         let mut node = self;
+
         for seg in path {
             node = node.get(seg)?;
         }
+
         Some(node)
     }
 }
@@ -105,12 +108,15 @@ pub fn parse(src: &str) -> Result<Node> {
     if src.starts_with('\u{feff}') {
         p.pos = 3;
     }
+
     p.ws();
     let node = p.value()?;
     p.ws();
+
     if p.pos != p.bytes.len() {
         bail!("unexpected trailing content at byte {}", p.pos);
     }
+
     Ok(node)
 }
 
@@ -132,6 +138,7 @@ impl<'a> Parser<'a> {
     fn expect(&mut self, b: u8) -> Result<()> {
         if self.peek() == Some(b) {
             self.pos += 1;
+
             Ok(())
         } else {
             Err(anyhow!("expected '{}' at byte {}", b as char, self.pos))
@@ -144,8 +151,10 @@ impl<'a> Parser<'a> {
             Some(b'[') => self.array(),
             Some(b'"') => {
                 let (span, value) = self.string()?;
+
                 Ok(Node::Str { span, value })
             }
+
             Some(_) => self.scalar(),
             None => bail!("unexpected end of input"),
         }
@@ -156,8 +165,10 @@ impl<'a> Parser<'a> {
         self.expect(b'{')?;
         let mut entries = Vec::new();
         self.ws();
+
         if self.peek() == Some(b'}') {
             self.pos += 1;
+
             return Ok(Node::Object {
                 span: Span {
                     start,
@@ -166,6 +177,7 @@ impl<'a> Parser<'a> {
                 entries,
             });
         }
+
         loop {
             self.ws();
             let key_start = self.pos;
@@ -179,16 +191,20 @@ impl<'a> Parser<'a> {
                 key_start,
                 value,
             });
+
             self.ws();
+
             match self.peek() {
                 Some(b',') => self.pos += 1,
                 Some(b'}') => {
                     self.pos += 1;
                     break;
                 }
+
                 _ => bail!("expected ',' or '}}' at byte {}", self.pos),
             }
         }
+
         Ok(Node::Object {
             span: Span {
                 start,
@@ -203,8 +219,10 @@ impl<'a> Parser<'a> {
         self.expect(b'[')?;
         let mut items = Vec::new();
         self.ws();
+
         if self.peek() == Some(b']') {
             self.pos += 1;
+
             return Ok(Node::Array {
                 span: Span {
                     start,
@@ -213,19 +231,23 @@ impl<'a> Parser<'a> {
                 items,
             });
         }
+
         loop {
             self.ws();
             items.push(self.value()?);
             self.ws();
+
             match self.peek() {
                 Some(b',') => self.pos += 1,
                 Some(b']') => {
                     self.pos += 1;
                     break;
                 }
+
                 _ => bail!("expected ',' or ']' at byte {}", self.pos),
             }
         }
+
         Ok(Node::Array {
             span: Span {
                 start,
@@ -238,6 +260,7 @@ impl<'a> Parser<'a> {
     fn string(&mut self) -> Result<(Span, String)> {
         let start = self.pos;
         self.expect(b'"')?;
+
         loop {
             match self.peek() {
                 Some(b'\\') => self.pos += 2,
@@ -245,13 +268,16 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     break;
                 }
+
                 Some(_) => self.pos += 1,
                 None => bail!("unterminated string starting at byte {start}"),
             }
         }
+
         let raw = &self.src[start..self.pos];
         let value: String = serde_json::from_str(raw)
             .map_err(|e| anyhow!("invalid string at byte {start}: {e}"))?;
+
         Ok((
             Span {
                 start,
@@ -263,15 +289,19 @@ impl<'a> Parser<'a> {
 
     fn scalar(&mut self) -> Result<Node> {
         let start = self.pos;
+
         while let Some(b) = self.peek() {
             if matches!(b, b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r') {
                 break;
             }
+
             self.pos += 1;
         }
+
         let raw = &self.src[start..self.pos];
         serde_json::from_str::<Value>(raw)
             .map_err(|_| anyhow!("invalid value '{raw}' at byte {start}"))?;
+
         Ok(Node::Other {
             span: Span {
                 start,
@@ -329,18 +359,21 @@ impl JsonDoc {
         if path.is_empty() {
             bail!("cannot replace the document root");
         }
+
         let root = self.root()?;
         let unit = detect_indent_unit(&self.text);
 
         // Walk as far as the path exists.
         let mut node = &root;
         let mut depth = 0;
+
         while depth < path.len() {
             match node.get(&path[depth]) {
                 Some(next) => {
                     node = next;
                     depth += 1;
                 }
+
                 None => break,
             }
         }
@@ -351,6 +384,7 @@ impl JsonDoc {
             let indent = line_indent(&self.text, span.start);
             let rendered = payload.render(&unit, &indent);
             self.text.replace_range(span.start..span.end, &rendered);
+
             return Ok(());
         }
 
@@ -358,23 +392,28 @@ impl JsonDoc {
         let Node::Object { span, entries } = node else {
             bail!("cannot insert into a non-object at {:?}", &path[..depth]);
         };
+
         let Seg::Key(first) = &path[depth] else {
             bail!(
                 "cannot create a missing array index at {:?}",
                 &path[..=depth]
             );
         };
+
         if depth + 1 < path.len() && matches!(payload, Payload::Raw { .. }) {
             bail!("raw values can only be inserted into an existing object");
         }
+
         let mut nested = match payload {
             Payload::Value(v) => v.clone(),
             Payload::Raw { .. } => Value::Null,
         };
+
         for seg in path[depth + 1..].iter().rev() {
             let Seg::Key(k) = seg else {
                 bail!("cannot create a missing array index");
             };
+
             let mut map = serde_json::Map::new();
             map.insert(k.clone(), nested);
             nested = Value::Object(map);
@@ -387,6 +426,7 @@ impl JsonDoc {
             let first_entry = &entries[0];
             let multiline = self.text[span.start..first_entry.key_start].contains('\n');
             let pos = last.value.span().end;
+
             let insertion = if multiline {
                 let entry_indent = line_indent(&self.text, first_entry.key_start);
                 let rendered = payload.render_nested(&nested, &unit, &entry_indent);
@@ -396,10 +436,13 @@ impl JsonDoc {
                     Payload::Raw { text, .. } => {
                         serde_json::to_string(&serde_json::from_str::<Value>(text)?)?
                     }
+
                     Payload::Value(_) => serde_json::to_string(&nested)?,
                 };
+
                 format!(", {key_json}: {rendered}")
             };
+
             self.text.insert_str(pos, &insertion);
         } else {
             let entry_indent = format!("{obj_indent}{unit}");
@@ -407,6 +450,7 @@ impl JsonDoc {
             let replacement = format!("{{\n{entry_indent}{key_json}: {rendered}\n{obj_indent}}}");
             self.text.replace_range(span.start..span.end, &replacement);
         }
+
         Ok(())
     }
 
@@ -419,17 +463,23 @@ impl JsonDoc {
         let Some((last, parent_path)) = path.split_last() else {
             bail!("cannot remove the document root");
         };
+
         let Seg::Key(key) = last else {
             bail!("removing array items is not supported");
         };
+
         let root = self.root()?;
+
         let Some(Node::Object { span, entries }) = root.at(parent_path) else {
             return Ok(false);
         };
+
         let Some(i) = entries.iter().position(|e| &e.key == key) else {
             return Ok(false);
         };
+
         let n = entries.len();
+
         let range = if n == 1 {
             (span.start + 1)..(span.end - 1)
         } else if i + 1 < n {
@@ -437,7 +487,9 @@ impl JsonDoc {
         } else {
             entries[i - 1].value.span().end..entries[i].value.span().end
         };
+
         self.text.replace_range(range, "");
+
         Ok(true)
     }
 }
@@ -469,16 +521,20 @@ impl Payload<'_> {
 fn reindent(text: &str, from: &str, to: &str) -> String {
     let mut lines = text.split('\n');
     let mut out = lines.next().unwrap_or_default().to_string();
+
     for line in lines {
         out.push('\n');
+
         match line.strip_prefix(from) {
             Some(rest) => {
                 out.push_str(to);
                 out.push_str(rest);
             }
+
             None => out.push_str(line),
         }
     }
+
     out
 }
 
@@ -494,6 +550,7 @@ fn render(value: &Value, unit: &str, indent: &str) -> String {
             let s = String::from_utf8(buf).expect("serde_json emits UTF-8");
             s.replace('\n', &format!("\n{indent}"))
         }
+
         _ => serde_json::to_string(value).expect("serializing a Value cannot fail"),
     }
 }
@@ -514,13 +571,16 @@ pub fn detect_indent_unit(text: &str) -> String {
             .chars()
             .take_while(|c| *c == ' ' || *c == '\t')
             .collect();
+
         if !ws.is_empty() && ws.len() < line.len() {
             if ws.starts_with('\t') {
                 return "\t".into();
             }
+
             return ws;
         }
     }
+
     "  ".into()
 }
 
@@ -561,6 +621,7 @@ mod tests {
             doc.text,
             "{\n  \"x\": {\n    \"a\": \"A\",\n    \"y\": {\n      \"z\": \"Z\"\n    }\n  }\n}"
         );
+
         assert_eq!(doc.get_str(&[k("x"), k("y"), k("z")]).as_deref(), Some("Z"));
     }
 
@@ -614,6 +675,7 @@ mod tests {
         let mut doc = JsonDoc::new("{\n  \"a\": \"A\"\n}");
         doc.set(&[k("b")], &json!([{ "match": { "x": "y" } }]))
             .unwrap();
+
         assert_eq!(
             doc.text,
             "{\n  \"a\": \"A\",\n  \"b\": [\n    {\n      \"match\": {\n        \"x\": \"y\"\n      }\n    }\n  ]\n}"

@@ -2,8 +2,8 @@
 
 use std::process::ExitCode;
 
+use crate::core::Project;
 use anyhow::Result;
-use inlocal_core::Project;
 
 pub fn run(project: &Project) -> Result<ExitCode> {
     let catalog = project.read_messages()?;

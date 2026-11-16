@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::checks::{self, Issue, IssueKind, LocaleStats};
-use crate::project::{Catalog, Edit, Message, Project};
+use super::checks::{self, Issue, IssueKind, LocaleStats};
+use super::project::{Catalog, Edit, Message, Project};
 
 /// Identifies one text field: a message, one of its variants, in one locale.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,21 +92,10 @@ impl Session {
             issues: HashMap::new(),
             stats: BTreeMap::new(),
         };
+
         model.recompute();
 
         Ok(model)
-    }
-
-    /// A model with no messages, used when the files can't be read.
-    pub fn empty(project: Arc<Project>) -> Self {
-        Self {
-            project,
-            on_disk: Catalog::default(),
-            edits: BTreeMap::new(),
-            catalog: Catalog::default(),
-            issues: HashMap::new(),
-            stats: BTreeMap::new(),
-        }
     }
 
     /// Whether the files hold something other than what was last read.
@@ -124,6 +113,7 @@ impl Session {
     pub fn reload(&mut self) -> Result<()> {
         self.on_disk = self.project.read_messages()?;
         self.recompute();
+
         Ok(())
     }
 
@@ -142,6 +132,7 @@ impl Session {
         if let Some(edit) = self.edits.get(key) {
             return edit.clone();
         }
+
         text_in(&self.on_disk, key)
     }
 
@@ -178,6 +169,7 @@ impl Session {
         }
 
         let issues = self.issues(id);
+
         if issues.iter().any(is_missing) {
             Status::Missing
         } else if !issues.is_empty() {
@@ -231,6 +223,7 @@ impl Session {
         } else {
             self.edits.insert(key, value);
         }
+
         self.recompute();
     }
 
@@ -271,6 +264,7 @@ impl Session {
             let Some(message) = catalog.messages.iter_mut().find(|m| m.id == key.id) else {
                 continue;
             };
+
             message
                 .values
                 .entry(key.locale.clone())
@@ -281,6 +275,7 @@ impl Session {
         let report = checks::run(&self.project, &catalog);
 
         let mut issues: HashMap<String, Vec<Issue>> = HashMap::new();
+
         for issue in report.issues {
             issues.entry(issue.id.clone()).or_default().push(issue);
         }
@@ -339,10 +334,12 @@ mod tests {
                 "plugin.inlang.messageFormat": { "pathPattern": "./messages/{locale}.json" }
             }"#,
         );
+
         write(
             "messages/en.json",
             r#"{ "hello": "Hello {name}", "bye": "Bye" }"#,
         );
+
         write("messages/nb.json", r#"{ "hello": "Hei {name}" }"#);
 
         Arc::new(Project::load(&dir.join("project.inlang")).unwrap())

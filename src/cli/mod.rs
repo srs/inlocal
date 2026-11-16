@@ -7,9 +7,9 @@ mod stats;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use crate::core::{find_project, Project};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use inlocal_core::{find_project, Project};
 
 /// A local translation editor for inlang projects.
 #[derive(Parser)]
@@ -83,6 +83,7 @@ pub fn run() -> Result<ExitCode> {
     match command {
         Command::Tui => {
             crate::tui::run(project)?;
+
             Ok(ExitCode::SUCCESS)
         }
 
@@ -98,6 +99,7 @@ pub fn run() -> Result<ExitCode> {
 #[cfg(feature = "web")]
 fn serve(project: Project, port: u16, open_browser: bool) -> Result<ExitCode> {
     crate::server::run(project, port, open_browser)?;
+
     Ok(ExitCode::SUCCESS)
 }
 

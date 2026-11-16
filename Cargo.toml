@@ -3,13 +3,10 @@ name = "inlocal"
 version = "0.1.0"
 edition = "2021"
 description = "A local, open-source translation editor for inlang projects"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/srs/inlocal"
 keywords = ["i18n", "inlang", "translation", "paraglide", "i18next"]
 categories = ["command-line-utilities", "internationalization"]
-
-[workspace]
-members = [".", "crates/core"]
 
 [features]
 default = ["web"]
@@ -18,7 +15,6 @@ default = ["web"]
 web = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:mime_guess", "dep:rust-embed", "dep:open"]
 
 [dependencies]
-inlocal-core = { path = "crates/core" }
 anyhow = "1"
 axum = { version = "0.8", optional = true }
 clap = { version = "4", features = ["derive"] }
@@ -26,11 +22,15 @@ mime_guess = { version = "2", optional = true }
 notify = "8"
 open = { version = "5", optional = true }
 ratatui = "0.30"
+regex = "1"
 rust-embed = { version = "8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", optional = true, features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
 tokio-stream = { version = "0.1", optional = true, features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 lto = true

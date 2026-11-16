@@ -15,8 +15,8 @@ changes with git as usual.
 | Terminal | `inlocal` (or `inlocal tui`) | ratatui |
 | Browser | `inlocal serve` | React |
 
-All of them share `inlocal-core`, so they find the same issues and write files
-the same way:
+Both share the same core, so they find the same issues and write files the
+same way:
 
 - Only edited values change on disk. Every other byte of the file is preserved.
 - Checks for missing translations, missing plural forms and broken `{variables}`.
@@ -71,7 +71,7 @@ cd ui && bun install && bun run build && cd ..
 
 cargo run -- -p examples/paraglide             # terminal editor
 cargo run -- serve -p examples/paraglide       # web UI
-cargo test --workspace
+cargo test
 
 cargo install --path .                         # put `inlocal` on your PATH
 ```
@@ -88,12 +88,12 @@ cargo build --release --no-default-features   # CLI and terminal editor only
 ### Layout
 
 ```
-crates/core/        inlocal-core: shared by every front end
-  project.rs          settings.json, formats, reading and writing messages
-  jsonedit.rs         format-preserving JSON editor
-  checks.rs           lint rules
-  session.rs          unsaved edits, issues and filters for editors
-src/                inlocal: the binary
+src/
+  core/               shared by every front end
+    project.rs          settings.json, formats, reading and writing messages
+    jsonedit.rs         format-preserving JSON editor
+    checks.rs           lint rules
+    session.rs          unsaved edits, issues and filters for editors
   cli/                one module per command
   tui/                ratatui terminal editor
   server.rs           web UI backend (feature `web`)
@@ -110,4 +110,4 @@ websites in your browser can't modify your files.
 
 ## License
 
-MIT
+Apache License 2.0. See [LICENSE](LICENSE).

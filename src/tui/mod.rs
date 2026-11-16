@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::core::{Project, Session};
 use anyhow::Result;
-use inlocal_core::{Project, Session};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
@@ -71,6 +71,7 @@ fn watch_files(files: Vec<PathBuf>, flag: Arc<AtomicBool>) -> Option<Recommended
         .iter()
         .filter_map(|f| f.parent().map(PathBuf::from))
         .collect();
+
     dirs.sort();
     dirs.dedup();
 

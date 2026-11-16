@@ -81,6 +81,7 @@ fn focus_existing_tab(url: &str) -> bool {
         .iter()
         .map(|app| chromium_script(app, url))
         .collect();
+
     scripts.push(safari_script(url));
 
     for script in scripts {
