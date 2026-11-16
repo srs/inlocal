@@ -31,6 +31,15 @@ pub enum Format {
 }
 
 impl Format {
+    /// Short name for display.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Format::MessageFormat => "messageFormat",
+            Format::I18next => "i18next",
+            Format::NestedJson => "nestedJson",
+        }
+    }
+
     /// How a variable is written in this format: `{name}` or `{{name}}`.
     pub fn placeholder(&self, name: &str) -> String {
         match self {
@@ -94,11 +103,21 @@ impl Project {
         if !locales.contains(&settings.base_locale) {
             locales.insert(0, settings.base_locale.clone());
         }
-        Ok(Project { dir, root, base_locale: settings.base_locale, locales, format, files })
+        Ok(Project {
+            dir,
+            root,
+            base_locale: settings.base_locale,
+            locales,
+            format,
+            files,
+        })
     }
 
     pub fn file_path(&self, set: &FileSet, locale: &str) -> PathBuf {
-        let rel = set.path_pattern.replace("{locale}", locale).replace("{languageTag}", locale);
+        let rel = set
+            .path_pattern
+            .replace("{locale}", locale)
+            .replace("{languageTag}", locale);
         let rel = rel.strip_prefix("./").unwrap_or(&rel);
         self.root.join(rel)
     }
@@ -125,7 +144,8 @@ impl Project {
                 }
                 let text = fs::read_to_string(&path)
                     .with_context(|| format!("cannot read {}", path.display()))?;
-                let root = parse(&text).with_context(|| format!("invalid JSON in {}", path.display()))?;
+                let root =
+                    parse(&text).with_context(|| format!("invalid JSON in {}", path.display()))?;
                 let mut leaves = Vec::new();
                 match self.format {
                     Format::MessageFormat => collect_message_format(&root, &mut leaves),
@@ -195,7 +215,8 @@ impl Project {
 
         let mut written = Vec::new();
         for (path, doc) in docs {
-            parse(&doc.text).with_context(|| format!("edit produced invalid JSON for {}", path.display()))?;
+            parse(&doc.text)
+                .with_context(|| format!("edit produced invalid JSON for {}", path.display()))?;
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -207,10 +228,34 @@ impl Project {
         Ok(written)
     }
 
+    /// Where a translation lives: its file, and the 1-based line of its key
+    /// if it exists in that file. Used for editor links and CI annotations.
+    pub fn locate(&self, id: &str, variant: &str, locale: &str) -> Option<Location> {
+        let (set, key) = self.split_namespace(id).ok()?;
+        let file = self.file_path(set, locale);
+
+        let line = fs::read_to_string(&file).ok().and_then(|text| {
+            let root = parse(&text).ok()?;
+
+            // Point at the variant if it exists, otherwise at the message.
+            let full = self.json_path(key, variant);
+            let node = root.at(&full).or_else(|| root.at(&full[..1]))?;
+
+            let start = node.span().start;
+            Some(text[..start].matches('\n').count() + 1)
+        });
+
+        Some(Location { file, line })
+    }
+
     fn split_namespace<'a>(&'a self, id: &'a str) -> Result<(&'a FileSet, &'a str)> {
         if self.files.iter().any(|f| f.namespace.is_some()) {
             if let Some((ns, key)) = id.split_once(':') {
-                if let Some(set) = self.files.iter().find(|f| f.namespace.as_deref() == Some(ns)) {
+                if let Some(set) = self
+                    .files
+                    .iter()
+                    .find(|f| f.namespace.as_deref() == Some(ns))
+                {
                     return Ok((set, key));
                 }
             }
@@ -225,7 +270,12 @@ impl Project {
                 if variant.is_empty() {
                     vec![Seg::key(key)]
                 } else {
-                    vec![Seg::key(key), Seg::Index(0), Seg::key("match"), Seg::key(variant)]
+                    vec![
+                        Seg::key(key),
+                        Seg::Index(0),
+                        Seg::key("match"),
+                        Seg::key(variant),
+                    ]
                 }
             }
             Format::I18next | Format::NestedJson => {
@@ -247,7 +297,9 @@ impl Project {
         let base_path = self.file_path(set, &self.base_locale);
         let text = fs::read_to_string(&base_path)?;
         let root = parse(&text)?;
-        let node = root.at(&[Seg::key(key)]).context("message missing in base locale")?;
+        let node = root
+            .at(&[Seg::key(key)])
+            .context("message missing in base locale")?;
         let span = node.span();
         let mut doc = JsonDoc::new(&text[span.start..span.end]);
         let indent = crate::jsonedit::line_indent(&text, span.start);
@@ -255,7 +307,10 @@ impl Project {
         let keys: Vec<String> = doc
             .root()?
             .at(&match_path)
-            .and_then(|m| m.entries().map(|e| e.iter().map(|x| x.key.clone()).collect()))
+            .and_then(|m| {
+                m.entries()
+                    .map(|e| e.iter().map(|x| x.key.clone()).collect())
+            })
             .unwrap_or_default();
         for k in keys {
             doc.set_str(&[Seg::Index(0), Seg::key("match"), Seg::key(k)], "")?;
@@ -267,15 +322,23 @@ impl Project {
 fn detect_format(rest: &serde_json::Map<String, Value>) -> Result<(Format, Vec<FileSet>)> {
     let pattern_of = |v: &Value| -> Option<Vec<FileSet>> {
         match v.get("pathPattern")? {
-            Value::String(s) => Some(vec![FileSet { namespace: None, path_pattern: s.clone() }]),
-            Value::Array(a) => a
-                .first()
-                .and_then(Value::as_str)
-                .map(|s| vec![FileSet { namespace: None, path_pattern: s.to_string() }]),
+            Value::String(s) => Some(vec![FileSet {
+                namespace: None,
+                path_pattern: s.clone(),
+            }]),
+            Value::Array(a) => a.first().and_then(Value::as_str).map(|s| {
+                vec![FileSet {
+                    namespace: None,
+                    path_pattern: s.to_string(),
+                }]
+            }),
             Value::Object(m) => Some(
                 m.iter()
                     .filter_map(|(ns, p)| {
-                        Some(FileSet { namespace: Some(ns.clone()), path_pattern: p.as_str()?.to_string() })
+                        Some(FileSet {
+                            namespace: Some(ns.clone()),
+                            path_pattern: p.as_str()?.to_string(),
+                        })
                     })
                     .collect(),
             ),
@@ -303,7 +366,9 @@ fn detect_format(rest: &serde_json::Map<String, Value>) -> Result<(Format, Vec<F
 type Leaf = (String, String, String);
 
 fn collect_message_format(root: &Node, out: &mut Vec<Leaf>) {
-    let Some(entries) = root.entries() else { return };
+    let Some(entries) = root.entries() else {
+        return;
+    };
     for entry in entries {
         if entry.key.starts_with('$') {
             continue;
@@ -311,7 +376,9 @@ fn collect_message_format(root: &Node, out: &mut Vec<Leaf>) {
         match &entry.value {
             Node::Str { value, .. } => out.push((entry.key.clone(), String::new(), value.clone())),
             Node::Array { .. } => {
-                let Some(matches) = entry.value.at(&[Seg::Index(0), Seg::key("match")]) else { continue };
+                let Some(matches) = entry.value.at(&[Seg::Index(0), Seg::key("match")]) else {
+                    continue;
+                };
                 for m in matches.entries().unwrap_or_default() {
                     if let Some(text) = m.value.as_str() {
                         out.push((entry.key.clone(), m.key.clone(), text.to_owned()));
@@ -324,16 +391,26 @@ fn collect_message_format(root: &Node, out: &mut Vec<Leaf>) {
 }
 
 fn collect_nested(node: &Node, prefix: &str, plural_suffixes: bool, out: &mut Vec<Leaf>) {
-    let Some(entries) = node.entries() else { return };
+    let Some(entries) = node.entries() else {
+        return;
+    };
     for entry in entries {
         if prefix.is_empty() && entry.key.starts_with('$') {
             continue;
         }
-        let path = if prefix.is_empty() { entry.key.clone() } else { format!("{prefix}.{}", entry.key) };
+        let path = if prefix.is_empty() {
+            entry.key.clone()
+        } else {
+            format!("{prefix}.{}", entry.key)
+        };
         match &entry.value {
             Node::Object { .. } => collect_nested(&entry.value, &path, plural_suffixes, out),
             Node::Str { value, .. } => {
-                let (id, variant) = if plural_suffixes { split_plural(&path) } else { (path.clone(), String::new()) };
+                let (id, variant) = if plural_suffixes {
+                    split_plural(&path)
+                } else {
+                    (path.clone(), String::new())
+                };
                 out.push((id, variant, value.clone()));
             }
             _ => {}
@@ -356,6 +433,12 @@ fn split_plural(path: &str) -> (String, String) {
 // Catalog
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    pub file: PathBuf,
+    pub line: Option<usize>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edit {
@@ -367,7 +450,7 @@ pub struct Edit {
     pub value: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     pub id: String,
@@ -377,7 +460,7 @@ pub struct Message {
     pub values: BTreeMap<String, BTreeMap<String, String>>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Catalog {
     pub messages: Vec<Message>,
 }
@@ -387,14 +470,21 @@ impl Catalog {
         let msg = match self.messages.iter_mut().position(|m| m.id == id) {
             Some(i) => &mut self.messages[i],
             None => {
-                self.messages.push(Message { id: id.to_string(), variants: vec![], values: BTreeMap::new() });
+                self.messages.push(Message {
+                    id: id.to_string(),
+                    variants: vec![],
+                    values: BTreeMap::new(),
+                });
                 self.messages.last_mut().expect("just pushed")
             }
         };
         if is_base && !msg.variants.iter().any(|v| v == variant) {
             msg.variants.push(variant.to_string());
         }
-        msg.values.entry(locale.to_string()).or_default().insert(variant.to_string(), value);
+        msg.values
+            .entry(locale.to_string())
+            .or_default()
+            .insert(variant.to_string(), value);
     }
 
     fn finish(&mut self) {
@@ -419,7 +509,10 @@ impl Catalog {
 fn sort_variants(variants: &mut [String]) {
     let rank = |v: &str| {
         let cat = v.rsplit('=').next().unwrap_or(v);
-        PLURAL_CATEGORIES.iter().position(|c| *c == cat).unwrap_or(PLURAL_CATEGORIES.len())
+        PLURAL_CATEGORIES
+            .iter()
+            .position(|c| *c == cat)
+            .unwrap_or(PLURAL_CATEGORIES.len())
     };
     variants.sort_by_key(|v| rank(v));
 }
@@ -427,7 +520,9 @@ fn sort_variants(variants: &mut [String]) {
 /// Look for a `project.inlang` directory at `start`, in its ancestors, or a
 /// few levels below it (skipping `node_modules` and hidden directories).
 pub fn find_project(start: &Path) -> Option<PathBuf> {
-    if start.file_name().is_some_and(|n| n == "project.inlang") && start.join("settings.json").exists() {
+    if start.file_name().is_some_and(|n| n == "project.inlang")
+        && start.join("settings.json").exists()
+    {
         return Some(start.to_path_buf());
     }
     for dir in start.ancestors() {
@@ -455,7 +550,8 @@ pub fn find_project(start: &Path) -> Option<PathBuf> {
         }
         for p in dirs {
             let name = p.file_name()?.to_string_lossy().to_string();
-            if name.starts_with('.') || name == "node_modules" || name == "target" || name == "dist" {
+            if name.starts_with('.') || name == "node_modules" || name == "target" || name == "dist"
+            {
                 continue;
             }
             if let Some(found) = search(&p, depth - 1) {
@@ -481,17 +577,25 @@ mod tests {
     fn message_format_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
-        write(d, "project.inlang/settings.json", r#"{
+        write(
+            d,
+            "project.inlang/settings.json",
+            r#"{
   "baseLocale": "en", "locales": ["en", "nb"],
   "plugin.inlang.messageFormat": { "pathPattern": "./messages/{locale}.json" }
-}"#);
-        write(d, "messages/en.json", r#"{
+}"#,
+        );
+        write(
+            d,
+            "messages/en.json",
+            r#"{
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "hello": "Hello {name}",
   "count": [{ "declarations": ["input count", "local c = count: plural"], "selectors": ["c"],
     "match": { "c=one": "{count} part", "c=other": "{count} parts" } }]
 }
-"#);
+"#,
+        );
         write(d, "messages/nb.json", "{\n  \"hello\": \"Hei {name}\"\n}\n");
 
         let project = Project::load(&d.join("project.inlang")).unwrap();
@@ -501,13 +605,25 @@ mod tests {
         assert_eq!(count.variants, vec!["c=one", "c=other"]);
 
         project
-            .apply_edits(&[Edit { id: "count".into(), variant: "c=other".into(), locale: "nb".into(), value: Some("{count} deler".into()) }])
+            .apply_edits(&[Edit {
+                id: "count".into(),
+                variant: "c=other".into(),
+                locale: "nb".into(),
+                value: Some("{count} deler".into()),
+            }])
             .unwrap();
         let nb = fs::read_to_string(d.join("messages/nb.json")).unwrap();
         assert!(nb.starts_with("{\n  \"hello\": \"Hei {name}\",\n  \"count\": ["));
         let cat = project.read_messages().unwrap();
         let count = cat.messages.iter().find(|m| m.id == "count").unwrap();
         assert_eq!(count.values["nb"]["c=other"], "{count} deler");
+
+        let found = project.locate("count", "c=other", "en").unwrap();
+        assert_eq!(found.file, project.root.join("messages/en.json"));
+        assert_eq!(found.line, Some(5));
+
+        let hello = project.locate("hello", "", "nb").unwrap();
+        assert_eq!(hello.line, Some(2));
         assert_eq!(count.values["nb"]["c=one"], "");
     }
 
@@ -515,11 +631,19 @@ mod tests {
     fn i18next_namespaces_and_plurals() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
-        write(d, "project.inlang/settings.json", r#"{
+        write(
+            d,
+            "project.inlang/settings.json",
+            r#"{
   "baseLocale": "en", "locales": ["en", "de"],
   "plugin.inlang.i18next": { "pathPattern": { "common": "./locales/{locale}/common.json" } }
-}"#);
-        write(d, "locales/en/common.json", r#"{ "parts": { "count_one": "{{count}} part", "count_other": "{{count}} parts" } }"#);
+}"#,
+        );
+        write(
+            d,
+            "locales/en/common.json",
+            r#"{ "parts": { "count_one": "{{count}} part", "count_other": "{{count}} parts" } }"#,
+        );
 
         let project = Project::load(&d.join("project.inlang")).unwrap();
         let cat = project.read_messages().unwrap();
@@ -527,9 +651,17 @@ mod tests {
         assert_eq!(cat.messages[0].variants, vec!["one", "other"]);
 
         project
-            .apply_edits(&[Edit { id: "common:parts.count".into(), variant: "one".into(), locale: "de".into(), value: Some("{{count}} Teil".into()) }])
+            .apply_edits(&[Edit {
+                id: "common:parts.count".into(),
+                variant: "one".into(),
+                locale: "de".into(),
+                value: Some("{{count}} Teil".into()),
+            }])
             .unwrap();
         let de = fs::read_to_string(d.join("locales/de/common.json")).unwrap();
-        assert_eq!(de, "{\n  \"parts\": {\n    \"count_one\": \"{{count}} Teil\"\n  }\n}\n");
+        assert_eq!(
+            de,
+            "{\n  \"parts\": {\n    \"count_one\": \"{{count}} Teil\"\n  }\n}\n"
+        );
     }
 }

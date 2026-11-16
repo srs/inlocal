@@ -96,7 +96,11 @@ struct Parser<'a> {
 }
 
 pub fn parse(src: &str) -> Result<Node> {
-    let mut p = Parser { src, bytes: src.as_bytes(), pos: 0 };
+    let mut p = Parser {
+        src,
+        bytes: src.as_bytes(),
+        pos: 0,
+    };
     // Tolerate a UTF-8 BOM.
     if src.starts_with('\u{feff}') {
         p.pos = 3;
@@ -154,7 +158,13 @@ impl<'a> Parser<'a> {
         self.ws();
         if self.peek() == Some(b'}') {
             self.pos += 1;
-            return Ok(Node::Object { span: Span { start, end: self.pos }, entries });
+            return Ok(Node::Object {
+                span: Span {
+                    start,
+                    end: self.pos,
+                },
+                entries,
+            });
         }
         loop {
             self.ws();
@@ -164,7 +174,11 @@ impl<'a> Parser<'a> {
             self.expect(b':')?;
             self.ws();
             let value = self.value()?;
-            entries.push(Entry { key, key_start, value });
+            entries.push(Entry {
+                key,
+                key_start,
+                value,
+            });
             self.ws();
             match self.peek() {
                 Some(b',') => self.pos += 1,
@@ -175,7 +189,13 @@ impl<'a> Parser<'a> {
                 _ => bail!("expected ',' or '}}' at byte {}", self.pos),
             }
         }
-        Ok(Node::Object { span: Span { start, end: self.pos }, entries })
+        Ok(Node::Object {
+            span: Span {
+                start,
+                end: self.pos,
+            },
+            entries,
+        })
     }
 
     fn array(&mut self) -> Result<Node> {
@@ -185,7 +205,13 @@ impl<'a> Parser<'a> {
         self.ws();
         if self.peek() == Some(b']') {
             self.pos += 1;
-            return Ok(Node::Array { span: Span { start, end: self.pos }, items });
+            return Ok(Node::Array {
+                span: Span {
+                    start,
+                    end: self.pos,
+                },
+                items,
+            });
         }
         loop {
             self.ws();
@@ -200,7 +226,13 @@ impl<'a> Parser<'a> {
                 _ => bail!("expected ',' or ']' at byte {}", self.pos),
             }
         }
-        Ok(Node::Array { span: Span { start, end: self.pos }, items })
+        Ok(Node::Array {
+            span: Span {
+                start,
+                end: self.pos,
+            },
+            items,
+        })
     }
 
     fn string(&mut self) -> Result<(Span, String)> {
@@ -220,7 +252,13 @@ impl<'a> Parser<'a> {
         let raw = &self.src[start..self.pos];
         let value: String = serde_json::from_str(raw)
             .map_err(|e| anyhow!("invalid string at byte {start}: {e}"))?;
-        Ok((Span { start, end: self.pos }, value))
+        Ok((
+            Span {
+                start,
+                end: self.pos,
+            },
+            value,
+        ))
     }
 
     fn scalar(&mut self) -> Result<Node> {
@@ -234,7 +272,12 @@ impl<'a> Parser<'a> {
         let raw = &self.src[start..self.pos];
         serde_json::from_str::<Value>(raw)
             .map_err(|_| anyhow!("invalid value '{raw}' at byte {start}"))?;
-        Ok(Node::Other { span: Span { start, end: self.pos } })
+        Ok(Node::Other {
+            span: Span {
+                start,
+                end: self.pos,
+            },
+        })
     }
 }
 
@@ -273,7 +316,13 @@ impl JsonDoc {
     /// from another file.
     pub fn set_raw(&mut self, path: &[Seg], raw: &str, raw_indent: &str) -> Result<()> {
         parse(raw)?;
-        self.set_payload(path, Payload::Raw { text: raw, indent: raw_indent })
+        self.set_payload(
+            path,
+            Payload::Raw {
+                text: raw,
+                indent: raw_indent,
+            },
+        )
     }
 
     fn set_payload(&mut self, path: &[Seg], payload: Payload) -> Result<()> {
@@ -310,7 +359,10 @@ impl JsonDoc {
             bail!("cannot insert into a non-object at {:?}", &path[..depth]);
         };
         let Seg::Key(first) = &path[depth] else {
-            bail!("cannot create a missing array index at {:?}", &path[..=depth]);
+            bail!(
+                "cannot create a missing array index at {:?}",
+                &path[..=depth]
+            );
         };
         if depth + 1 < path.len() && matches!(payload, Payload::Raw { .. }) {
             bail!("raw values can only be inserted into an existing object");
@@ -341,7 +393,9 @@ impl JsonDoc {
                 format!(",\n{entry_indent}{key_json}: {rendered}")
             } else {
                 let rendered = match payload {
-                    Payload::Raw { text, .. } => serde_json::to_string(&serde_json::from_str::<Value>(text)?)?,
+                    Payload::Raw { text, .. } => {
+                        serde_json::to_string(&serde_json::from_str::<Value>(text)?)?
+                    }
                     Payload::Value(_) => serde_json::to_string(&nested)?,
                 };
                 format!(", {key_json}: {rendered}")
@@ -456,7 +510,10 @@ pub fn line_indent(text: &str, pos: usize) -> String {
 /// Guess the file's indent unit from its first indented line.
 pub fn detect_indent_unit(text: &str) -> String {
     for line in text.lines() {
-        let ws: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let ws: String = line
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
         if !ws.is_empty() && ws.len() < line.len() {
             if ws.starts_with('\t') {
                 return "\t".into();
@@ -481,7 +538,10 @@ mod tests {
         let src = "{\n    \"b\": \"B\",\n    \"a\":   \"caf\\u00e9\",\n    \"c\": 1\n}\n";
         let mut doc = JsonDoc::new(src);
         doc.set_str(&[k("b")], "Bee").unwrap();
-        assert_eq!(doc.text, "{\n    \"b\": \"Bee\",\n    \"a\":   \"caf\\u00e9\",\n    \"c\": 1\n}\n");
+        assert_eq!(
+            doc.text,
+            "{\n    \"b\": \"Bee\",\n    \"a\":   \"caf\\u00e9\",\n    \"c\": 1\n}\n"
+        );
     }
 
     #[test]
@@ -552,7 +612,8 @@ mod tests {
     #[test]
     fn inserts_complex_values() {
         let mut doc = JsonDoc::new("{\n  \"a\": \"A\"\n}");
-        doc.set(&[k("b")], &json!([{ "match": { "x": "y" } }])).unwrap();
+        doc.set(&[k("b")], &json!([{ "match": { "x": "y" } }]))
+            .unwrap();
         assert_eq!(
             doc.text,
             "{\n  \"a\": \"A\",\n  \"b\": [\n    {\n      \"match\": {\n        \"x\": \"y\"\n      }\n    }\n  ]\n}"

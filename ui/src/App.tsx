@@ -470,9 +470,7 @@ export function App() {
 
       <footer className="statusbar">
         {project.gitBranch && <span><GitBranch size={12} /> {project.gitBranch}</span>}
-        {project.files.map((f) => (
-          <span key={f.pathPattern}><FileCode2 size={12} /> {f.pathPattern}</span>
-        ))}
+        <FilesStatus files={project.files} namespace={namespace} onSelect={setNamespace} />
         <span>{format}</span>
         <span className="right"><Radio size={12} /> {live ? "watching for changes" : "not watching"}</span>
       </footer>
@@ -673,6 +671,66 @@ function TableView(props: {
           );
         })}
       </table>
+    </div>
+  );
+}
+
+/** Footer item for translation files. Shows the pattern when there is one
+ *  (or a namespace is selected), otherwise a count that opens a list. */
+function FilesStatus(props: {
+  files: ProjectInfo["files"];
+  namespace: string | null;
+  onSelect: (ns: string) => void;
+}) {
+  const { files, namespace, onSelect } = props;
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  const active = namespace ? files.find((f) => f.namespace === namespace) : files.length === 1 ? files[0] : null;
+  if (active && files.length === 1) {
+    return (
+      <span className="status-item" title={active.pathPattern}>
+        <FileCode2 size={12} /> {active.pathPattern}
+      </span>
+    );
+  }
+  return (
+    <div className="status-pop" ref={ref}>
+      <button className="status-item status-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <FileCode2 size={12} /> {active ? active.pathPattern : `${files.length} namespaces`}
+      </button>
+      {open && (
+        <div className="popover" role="dialog" aria-label="Translation files">
+          {files.map((f) => (
+            <button
+              key={f.pathPattern}
+              className={`popover-row ${f.namespace === namespace ? "on" : ""}`}
+              title={`Show only ${f.namespace}`}
+              onClick={() => {
+                if (f.namespace) onSelect(f.namespace);
+                setOpen(false);
+              }}
+            >
+              <span className="mono ns">{f.namespace ?? "default"}</span>
+              <span className="mono path">{f.pathPattern}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

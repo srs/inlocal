@@ -2,20 +2,25 @@
 
 A local, open-source translation editor for [inlang](https://inlang.com) projects.
 
-Run it in a repo with a `project.inlang` folder and it opens a fast, keyboard-first
-editor in your browser. It reads and writes your translation files directly: no
-account, no sync, no cloud. You commit the changes with git as usual.
+Run it in a repo with a `project.inlang` folder. It reads and writes your
+translation files directly: no account, no sync, no cloud. You commit the
+changes with git as usual.
 
 > Unofficial. Not affiliated with inlang or Opral.
 
-## Features
+## Front ends
 
-- Focus view: one message with every locale and plural form
-- Compare view: two languages side by side (for example `en` → `de`), with "only missing" filtering, or all locales as a grid
-- Checks for missing translations, missing plural forms and broken `{variables}`, with quick fixes
-- Clean diffs: only edited values change, every other byte of the file is preserved
-- Live reload when files change on disk
-- `inlocal check` for CI (exits 1 on issues)
+| | Command | Built with |
+| --- | --- | --- |
+| Terminal | `inlocal` (or `inlocal tui`) | ratatui |
+| Browser | `inlocal serve` | React |
+
+All of them share `inlocal-core`, so they find the same issues and write files
+the same way:
+
+- Only edited values change on disk. Every other byte of the file is preserved.
+- Checks for missing translations, missing plural forms and broken `{variables}`.
+- Live reload when files change on disk. Unsaved work is never overwritten.
 
 Supported formats (read from `project.inlang/settings.json`):
 
@@ -25,57 +30,83 @@ Supported formats (read from `project.inlang/settings.json`):
 | `plugin.inlang.i18next` | nested keys, `{{var}}`, `_one`/`_other` plurals, namespaces |
 | any other `plugin.*` with a `pathPattern` | nested keys, `{var}` |
 
-## Usage
+## Command line
 
 ```sh
-inlocal                     # find project.inlang near the current folder and open the editor
-inlocal serve --port 4321 --no-open
-inlocal check               # print issues and translation coverage
-inlocal check --json
-inlocal -p path/to/project.inlang
+inlocal                          # open the terminal editor
+inlocal check                    # list issues; exits 1 if there are any
+inlocal check -l de -l sv        # only some locales
+inlocal check --format github    # annotations on pull requests in GitHub Actions
+inlocal check --format json
+inlocal stats                    # coverage per locale and namespace
+inlocal missing de               # missing message ids for a locale, one per line
+inlocal info                     # detected format, locales and files
+inlocal -p path/to/project       # use a project somewhere else
 ```
 
-Shortcuts: `⌘K` search, `⌘S` save, `⌘\` switch between focus and compare view, `↑`/`↓` or `j`/`k` to move between messages.
+### In CI
+
+```yaml
+- run: cargo install --git https://github.com/srs/inlocal inlocal
+- run: inlocal check --format github
+```
+
+## Terminal editor keys
+
+| Where | Keys |
+| --- | --- |
+| List | `j`/`k` move, `enter` edit, `/` search, `1`–`4` filter, `n` namespace, `v` compare view, `q` quit |
+| Compare | `f`/`t` pick languages, `w` swap, `m` only missing, `c` copy from the left column |
+| Fields | `j`/`k` field, `J`/`K` next/previous message, `enter` edit, `c` copy from source, `x` clear, `esc` back |
+| Editing | `enter` keep, `esc` cancel, `alt+enter` new line, `ctrl+u` clear |
+| Anywhere | `ctrl+s` save, `u` undo all unsaved edits, `r` reload from disk |
 
 ## Development
 
-Requirements: Rust (stable) and [Bun](https://bun.sh) (or Node).
+Requirements: Rust (stable), and Bun (or Node) for the web UI.
 
 ```sh
-# Build the UI once; it is embedded in the binary.
+# Build the web UI once; it is embedded in the binary.
 cd ui && bun install && bun run build && cd ..
 
-cargo run -- -p examples/paraglide
-cargo test
+cargo run -- -p examples/paraglide             # terminal editor
+cargo run -- serve -p examples/paraglide       # web UI
+cargo test --workspace
+
+cargo install --path .                         # put `inlocal` on your PATH
 ```
 
-For UI work with hot reload, run the server and Vite side by side:
+### Features
+
+The web UI is a Cargo feature, on by default. It adds about 1.6 MB to a
+3.8 MB release binary.
 
 ```sh
-cargo run -- -p examples/paraglide --no-open   # API on :4321
-cd ui && bun run dev                           # UI on :5173, proxies /api
+cargo build --release --no-default-features   # CLI and terminal editor only
 ```
-
-If you build the Rust side before the UI, the binary serves a placeholder page
-telling you to build the UI.
 
 ### Layout
 
 ```
-src/main.rs       CLI (serve, check)
-src/project.rs    settings.json, format detection, reading and writing messages
-src/jsonedit.rs   format-preserving JSON editor (span-tracking parser)
-src/checks.rs     lint rules
-src/server.rs     axum API, file watcher (SSE), embedded UI
-ui/               React + Vite UI
-examples/         sample Paraglide and i18next projects
+crates/core/        inlocal-core: shared by every front end
+  project.rs          settings.json, formats, reading and writing messages
+  jsonedit.rs         format-preserving JSON editor
+  checks.rs           lint rules
+  session.rs          unsaved edits, issues and filters for editors
+src/                inlocal: the binary
+  cli/                one module per command
+  tui/                ratatui terminal editor
+  server.rs           web UI backend (feature `web`)
+  browser.rs          reuses an open browser tab on macOS
+ui/                 React web UI
+examples/           sample Paraglide and i18next projects
 ```
 
 ### Security
 
-The server binds to `127.0.0.1` only, rejects requests with a foreign `Host`
-header, and requires an `x-inlocal` header on writes so other websites in your
-browser can't modify your files.
+The web server binds to `127.0.0.1` only, rejects requests with a foreign
+`Host` header, and requires an `x-inlocal` header on writes, so other
+websites in your browser can't modify your files.
 
 ## License
 

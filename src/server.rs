@@ -21,8 +21,10 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
-use crate::checks::{self, Issue, LocaleStats};
-use crate::project::{Edit, Message, Project};
+use inlocal_core::checks::{self, Issue, LocaleStats};
+
+use crate::browser;
+use inlocal_core::{Edit, Message, Project};
 
 #[derive(RustEmbed)]
 #[folder = "ui/dist"]
@@ -41,8 +43,8 @@ struct ProjectInfo<'a> {
     project_dir: String,
     base_locale: &'a str,
     locales: &'a [String],
-    format: crate::project::Format,
-    files: &'a [crate::project::FileSet],
+    format: inlocal_core::Format,
+    files: &'a [inlocal_core::FileSet],
     git_branch: Option<String>,
 }
 
@@ -74,12 +76,26 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
     }
 }
 
-pub async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
+/// Start the web editor and block until Ctrl+C.
+pub fn run(project: Project, port: u16, open_browser: bool) -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(serve(project, port, open_browser))?;
+
+    // Don't wait for lingering tasks (file watcher, open streams).
+    runtime.shutdown_timeout(Duration::from_millis(200));
+
+    Ok(())
+}
+
+async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
     let project = Arc::new(project);
     let (changes, _) = broadcast::channel(16);
     let _watcher = watch(&project, changes.clone())?;
 
-    let state = AppState { project: project.clone(), changes };
+    let state = AppState {
+        project: project.clone(),
+        changes,
+    };
     let app = Router::new()
         .route("/api/project", get(project_info))
         .route("/api/messages", get(messages))
@@ -89,6 +105,19 @@ pub async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()
         .layer(middleware::from_fn(guard))
         .with_state(state);
 
+    // Already serving this project? Show that one instead of a second server.
+    let ports = port..port.saturating_add(20);
+
+    if let Some(url) = browser::find_running_server(&project.dir, ports) {
+        println!("inlocal is already running for this project at {url}");
+
+        if open_browser {
+            browser::show(&url);
+        }
+
+        return Ok(());
+    }
+
     let listener = bind(port).await?;
     let addr = listener.local_addr()?;
     let url = format!("http://localhost:{}", addr.port());
@@ -96,7 +125,7 @@ pub async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()
     println!("         {url}");
     println!("         press Ctrl+C to stop");
     if open_browser {
-        let _ = open::that(&url);
+        browser::show(&url);
     }
     // Don't use graceful shutdown: the browser keeps the /api/events stream
     // open forever, so waiting for connections to drain would hang Ctrl+C.
@@ -117,7 +146,10 @@ async fn bind(port: u16) -> Result<tokio::net::TcpListener> {
             Err(e) => last_err = Some(e),
         }
     }
-    Err(anyhow::anyhow!("no free port from {port}: {}", last_err.map(|e| e.to_string()).unwrap_or_default()))
+    Err(anyhow::anyhow!(
+        "no free port from {port}: {}",
+        last_err.map(|e| e.to_string()).unwrap_or_default()
+    ))
 }
 
 /// The server only listens on 127.0.0.1, but a web page in the browser can
@@ -125,7 +157,10 @@ async fn bind(port: u16) -> Result<tokio::net::TcpListener> {
 /// require a custom header on writes, which browsers won't send cross-origin
 /// without a CORS preflight that this server never approves.
 async fn guard(headers: HeaderMap, req: Request, next: Next) -> Response {
-    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
     let hostname = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
     if !matches!(hostname, "localhost" | "127.0.0.1" | "[::1]") {
         return (StatusCode::FORBIDDEN, "forbidden host").into_response();
@@ -138,7 +173,11 @@ async fn guard(headers: HeaderMap, req: Request, next: Next) -> Response {
 
 async fn project_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let p = &s.project;
-    let name = p.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = p
+        .root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     let info = ProjectInfo {
         name,
         project_dir: p.dir.display().to_string(),
@@ -155,7 +194,10 @@ async fn messages(State(s): State<AppState>) -> Result<Json<MessagesResponse>, A
     Ok(Json(load(&s.project)?))
 }
 
-async fn save(State(s): State<AppState>, Json(req): Json<SaveRequest>) -> Result<Json<MessagesResponse>, ApiError> {
+async fn save(
+    State(s): State<AppState>,
+    Json(req): Json<SaveRequest>,
+) -> Result<Json<MessagesResponse>, ApiError> {
     s.project.apply_edits(&req.edits)?;
     Ok(Json(load(&s.project)?))
 }
@@ -163,10 +205,16 @@ async fn save(State(s): State<AppState>, Json(req): Json<SaveRequest>) -> Result
 fn load(project: &Project) -> anyhow::Result<MessagesResponse> {
     let catalog = project.read_messages()?;
     let report = checks::run(project, &catalog);
-    Ok(MessagesResponse { messages: catalog.messages, issues: report.issues, stats: report.stats })
+    Ok(MessagesResponse {
+        messages: catalog.messages,
+        issues: report.issues,
+        stats: report.stats,
+    })
 }
 
-async fn events(State(s): State<AppState>) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
+async fn events(
+    State(s): State<AppState>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
     let stream = BroadcastStream::new(s.changes.subscribe())
         .map(|_| Ok(Event::default().event("changed").data("files")));
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -179,11 +227,21 @@ async fn static_file(uri: Uri) -> Response {
         Some(f) => (path, f),
         None => match Assets::get("index.html") {
             Some(f) => ("index.html", f),
-            None => return (StatusCode::NOT_FOUND, "UI not built. Run `bun run build` in ui/.").into_response(),
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    "UI not built. Run `bun run build` in ui/.",
+                )
+                    .into_response()
+            }
         },
     };
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    ([(header::CONTENT_TYPE, mime.as_ref().to_string())], file.data.into_owned()).into_response()
+    (
+        [(header::CONTENT_TYPE, mime.as_ref().to_string())],
+        file.data.into_owned(),
+    )
+        .into_response()
 }
 
 /// Watch the translation directories and broadcast a debounced "changed".
@@ -199,7 +257,10 @@ fn watch(project: &Project, changes: broadcast::Sender<()>) -> Result<notify::Re
         }
     })?;
 
-    let mut dirs: Vec<PathBuf> = files.iter().filter_map(|f| f.parent().map(|p| p.to_path_buf())).collect();
+    let mut dirs: Vec<PathBuf> = files
+        .iter()
+        .filter_map(|f| f.parent().map(|p| p.to_path_buf()))
+        .collect();
     dirs.sort();
     dirs.dedup();
     for dir in dirs {
@@ -222,7 +283,12 @@ fn git_branch(root: &std::path::Path) -> Option<String> {
     for dir in root.ancestors() {
         let head = dir.join(".git/HEAD");
         if let Ok(text) = std::fs::read_to_string(head) {
-            return Some(text.trim().strip_prefix("ref: refs/heads/").unwrap_or(text.trim()).to_string());
+            return Some(
+                text.trim()
+                    .strip_prefix("ref: refs/heads/")
+                    .unwrap_or(text.trim())
+                    .to_string(),
+            );
         }
     }
     None
