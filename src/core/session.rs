@@ -10,6 +10,7 @@ use anyhow::Result;
 
 use super::checks::{self, Issue, IssueKind, LocaleStats};
 use super::project::{Catalog, Edit, Message, Project};
+use super::usages::{self, UsageReport};
 
 /// Identifies one text field: a message, one of its variants, in one locale.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,6 +97,11 @@ impl Session {
         model.recompute();
 
         Ok(model)
+    }
+
+    /// Where each message is used in the project's source code.
+    pub fn scan_usages(&self) -> UsageReport {
+        usages::scan(&self.project, &self.on_disk)
     }
 
     /// Whether the files hold something other than what was last read.

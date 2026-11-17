@@ -3,6 +3,7 @@
 mod check;
 mod info;
 mod stats;
+mod usages;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -36,6 +37,10 @@ enum Command {
         /// Don't open a browser window.
         #[arg(long)]
         no_open: bool,
+
+        /// Editor that "Used in" links open: vscode, cursor, zed or none.
+        #[arg(long, env = "INLOCAL_EDITOR", default_value = "vscode")]
+        editor: String,
     },
 
     /// Report missing translations and broken variables. Exits 1 on issues.
@@ -62,6 +67,22 @@ enum Command {
 
     /// Show the detected project: format, locales and files.
     Info,
+
+    /// Where messages are used in the source code. Without an id, a count
+    /// for every message.
+    Usages {
+        /// Message id, for example `greeting` or `common:nav.parts`.
+        id: Option<String>,
+
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Messages that no source file uses. Exits 1 if there are any.
+    Unused,
+
+    /// Keys used in source files that don't exist. Exits 1 if there are any.
+    Undefined,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -87,24 +108,37 @@ pub fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
 
-        Command::Serve { port, no_open } => serve(project, port, !no_open),
+        Command::Serve {
+            port,
+            no_open,
+            editor,
+        } => serve(project, port, !no_open, editor),
 
         Command::Check { locale, format } => check::run(&project, &locale, format),
         Command::Stats { json } => stats::run(&project, json),
         Command::Missing { locale } => stats::missing(&project, &locale),
         Command::Info => info::run(&project),
+        Command::Usages { id, json } => usages::run(&project, id.as_deref(), json),
+        Command::Unused => usages::unused(&project),
+        Command::Undefined => usages::undefined(&project),
     }
 }
 
 #[cfg(feature = "web")]
-fn serve(project: Project, port: u16, open_browser: bool) -> Result<ExitCode> {
-    crate::server::run(project, port, open_browser)?;
+fn serve(project: Project, port: u16, open_browser: bool, editor: String) -> Result<ExitCode> {
+    let options = crate::server::Options {
+        port,
+        open_browser,
+        editor,
+    };
+
+    crate::server::run(project, options)?;
 
     Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(not(feature = "web"))]
-fn serve(_: Project, _: u16, _: bool) -> Result<ExitCode> {
+fn serve(_: Project, _: u16, _: bool, _: String) -> Result<ExitCode> {
     anyhow::bail!("this build of inlocal has no web UI.")
 }
 

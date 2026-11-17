@@ -183,3 +183,75 @@ input, textarea { font: inherit; color: inherit; }
 .popover-row:hover, .popover-row.on { background: var(--hover); }
 .popover-row .ns { color: var(--text); }
 .popover-row .path { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.banner {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 12px;
+  background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--border);
+}
+.banner .btn { margin-left: auto; }
+.error { color: var(--danger); }
+.center { display: grid; place-items: center; height: 100%; color: var(--text-3); }
+
+/* View toggle */
+.segmented { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.segmented button {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text-2); white-space: nowrap;
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.on { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
+
+/* Side-by-side table */
+.compare { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.compare-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border);
+  color: var(--text-2); font-size: 12px;
+}
+.compare-bar label { display: inline-flex; align-items: center; gap: 6px; }
+.select { position: relative; display: inline-flex; align-items: center; }
+.select select {
+  appearance: none; -webkit-appearance: none; height: 26px; padding: 0 26px 0 8px; line-height: 24px;
+  border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface);
+  color: var(--text); font: inherit; font-family: var(--mono); cursor: pointer; outline: none;
+}
+.select select:hover { background: var(--hover); }
+.select select:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.select svg { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-3); }
+.compare-bar .check { margin-left: 8px; cursor: pointer; }
+.compare-bar .check input { accent-color: var(--accent); margin: 0; }
+.compare-count { margin-left: auto; color: var(--text-3); }
+.table-wrap { overflow: auto; min-height: 0; flex: 1; }
+.grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.grid th {
+  position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-weight: 400;
+  padding: 8px 10px; border-bottom: 1px solid var(--border-strong); color: var(--text-2);
+}
+.grid th .locale-tag { display: inline-block; margin: 0; }
+.th-note { margin-left: 8px; font-size: 11px; color: var(--text-3); }
+.grid td { padding: 6px 10px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.grid tbody.msg { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+.grid tbody.msg tr:not(:last-child) td:not(.key-col) { border-bottom-color: transparent; padding-bottom: 2px; }
+.grid tbody.msg:hover td { background: var(--hover); }
+.grid .key-col { position: sticky; left: 0; z-index: 1; background: var(--bg); border-right: 1px solid var(--border); }
+.grid th.key-col { z-index: 3; }
+.key-link {
+  display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 0 4px; border: 0; background: none; text-align: left;
+}
+.key-link .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-link:hover .mono { text-decoration: underline; text-underline-offset: 3px; }
+.cell { position: relative; }
+.cell-variant { display: block; font-size: 11px; color: var(--text-3); margin: 0 0 2px 2px; }
+.cell-issue { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11px; color: var(--warn); min-width: 0; }
+.cell-issue .btn { margin-left: auto; height: 20px; padding: 0 6px; }
+
+/* Used in */
+.usages { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+.usages-title { font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
+.usage {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px; margin: 0 -8px;
+  border-radius: 6px; color: var(--text-2); text-decoration: none; min-width: 0;
+}
+a.usage:hover { background: var(--hover); color: var(--text); }
+.usage-file { color: var(--accent); flex: none; }
+.usage-snippet { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

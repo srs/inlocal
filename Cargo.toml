@@ -17,7 +17,8 @@ web = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:mime_guess", "dep:rust-
 [dependencies]
 anyhow = "1"
 axum = { version = "0.8", optional = true }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
+ignore = "0.4"
 mime_guess = { version = "2", optional = true }
 notify = "8"
 open = { version = "5", optional = true }

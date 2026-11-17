@@ -4,13 +4,15 @@ mod app;
 mod input;
 mod ui;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::core::usages::Usage;
 use crate::core::{Project, Session};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
@@ -49,6 +51,58 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
                 app.on_key(key);
             }
         }
+
+        if let Some(usage) = app.open_request.take() {
+            if let Err(e) = open_in_editor(terminal, &usage) {
+                app.message = Some(format!("Couldn't open the editor: {e:#}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Open a usage in `$VISUAL` / `$EDITOR`, at its line.
+///
+/// Terminal editors take over the screen, so the TUI steps aside while the
+/// editor runs and comes back afterwards.
+fn open_in_editor(terminal: &mut ratatui::DefaultTerminal, usage: &Usage) -> Result<()> {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    // `EDITOR` may hold arguments too, like `code --wait`.
+    let mut words = editor.split_whitespace();
+    let program = words.next().unwrap_or("vi");
+    let base_args: Vec<&str> = words.collect();
+
+    let name = Path::new(program)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let file = usage.file.display().to_string();
+    let location = format!("{file}:{}:{}", usage.line, usage.column);
+
+    // How each editor wants to be told the line.
+    let args: Vec<String> = match name.as_str() {
+        "code" | "code-insiders" | "codium" | "cursor" | "windsurf" => {
+            vec!["-g".into(), location]
+        }
+        "zed" | "subl" | "hx" | "helix" => vec![location],
+        _ => vec![format!("+{}", usage.line), file],
+    };
+
+    ratatui::restore();
+
+    let status = Command::new(program).args(base_args).args(&args).status();
+
+    *terminal = ratatui::init();
+    terminal.clear()?;
+
+    let status = status.with_context(|| format!("couldn't run '{program}'"))?;
+    if !status.success() {
+        anyhow::bail!("'{program}' exited with {status}");
     }
 
     Ok(())

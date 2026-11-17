@@ -8,6 +8,10 @@ export interface ProjectInfo {
   format: Format;
   files: { namespace: string | null; pathPattern: string }[];
   gitBranch: string | null;
+  /** Absolute path the usage file paths are under. */
+  root: string;
+  /** Editor that "Used in" links open: vscode, cursor, zed or none. */
+  editor: string;
 }
 
 export interface Message {
@@ -31,6 +35,22 @@ export interface MessagesResponse {
   messages: Message[];
   issues: Issue[];
   stats: Record<string, { translated: number; total: number }>;
+}
+
+export interface Usage {
+  id: string;
+  /** Absolute path. */
+  file: string;
+  line: number;
+  column: number;
+  snippet: string;
+}
+
+export interface UsageReport {
+  usages: Record<string, Usage[]>;
+  undefined: Usage[];
+  dynamicPrefixes: string[];
+  filesScanned: number;
 }
 
 export interface Edit {
@@ -57,6 +77,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   project: () => request<ProjectInfo>("/api/project"),
   messages: () => request<MessagesResponse>("/api/messages"),
+
+  usages: () => request<UsageReport>("/api/usages"),
   save: (edits: Edit[]) =>
     request<MessagesResponse>("/api/save", { method: "POST", body: JSON.stringify({ edits }) }),
 };

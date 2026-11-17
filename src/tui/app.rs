@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::core::session::is_missing;
+use crate::core::usages::{Usage, UsageReport};
 use crate::core::{FieldKey, Filter, Message, Session};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -58,6 +59,11 @@ pub struct App {
     pub changed_on_disk: bool,
     pub quit: bool,
 
+    /// Where messages are used in the source code, and a usage the user
+    /// asked to open (the event loop opens it, since it owns the terminal).
+    pub usages: UsageReport,
+    pub open_request: Option<Usage>,
+
     files_changed: Arc<AtomicBool>,
 }
 
@@ -90,10 +96,14 @@ impl App {
             message: None,
             changed_on_disk: false,
             quit: false,
+            usages: UsageReport::default(),
+            open_request: None,
             files_changed,
         };
 
         app.refresh_visible();
+        app.rescan_usages();
+
         app
     }
 
@@ -246,6 +256,9 @@ impl App {
                 if self.current().is_some() {
                     self.focus = Focus::Fields;
                     self.field = self.first_field_to_translate();
+
+                    // The code may have changed since we last looked.
+                    self.rescan_usages();
                 }
             }
 
@@ -347,6 +360,12 @@ impl App {
             KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char('i') => self.start_editing(),
             KeyCode::Char('c') => self.copy_from_base(),
             KeyCode::Char('x') => self.set_current(String::new()),
+
+            // Open the n-th place the message is used.
+            KeyCode::Char(digit @ '1'..='9') => {
+                let n = digit as usize - '0' as usize;
+                self.open_usage(n);
+            }
 
             // Jump to the next or previous message without leaving the fields.
             KeyCode::Char('J') => self.move_selection(1),
@@ -546,6 +565,7 @@ impl App {
 
         self.changed_on_disk = false;
         self.refresh_visible();
+        self.rescan_usages();
     }
 
     fn reload(&mut self) {
@@ -555,6 +575,26 @@ impl App {
 
         self.changed_on_disk = false;
         self.refresh_visible();
+        self.rescan_usages();
+    }
+
+    fn rescan_usages(&mut self) {
+        self.usages = self.session.scan_usages();
+    }
+
+    /// Usages of the selected message.
+    pub fn current_usages(&self) -> &[Usage] {
+        self.current()
+            .and_then(|m| self.usages.usages.get(&m.id))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    fn open_usage(&mut self, n: usize) {
+        match self.current_usages().get(n - 1) {
+            Some(usage) => self.open_request = Some(usage.clone()),
+            None => self.message = Some(format!("There is no usage {n}")),
+        }
     }
 
     pub fn has_missing(&self, key: &FieldKey) -> bool {

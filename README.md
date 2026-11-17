@@ -41,6 +41,10 @@ inlocal check --format json
 inlocal stats                    # coverage per locale and namespace
 inlocal missing de               # missing message ids for a locale, one per line
 inlocal info                     # detected format, locales and files
+inlocal usages                   # how often each message is used in the code
+inlocal usages parts_count       # where one message is used (file:line:column)
+inlocal unused                   # messages no source file uses; exits 1 if any
+inlocal undefined                # keys used in code that don't exist; exits 1 if any
 inlocal -p path/to/project       # use a project somewhere else
 ```
 
@@ -51,13 +55,32 @@ inlocal -p path/to/project       # use a project somewhere else
 - run: inlocal check --format github
 ```
 
+## Where messages are used
+
+inlocal scans the source files next to `project.inlang` (honoring
+`.gitignore`) for message references:
+
+| Library | Recognized |
+| --- | --- |
+| Paraglide JS | `m.key()`, `m["key"]()`, `import { key } from ".../paraglide/messages"` |
+| i18next | `t("key")`, `t("ns:key")`, `i18nKey="key"`; the namespace comes from `useTranslation("ns")` |
+| next-intl | `t("key")` with the namespace from `useTranslations("ns")` |
+
+This is pattern matching, not a parser. Keys built at runtime, like
+``t(`status.${state}`)``, can't be resolved; messages starting with their
+fixed part (`status.`) are reported as possibly used instead of unused.
+
+The terminal editor lists the places under each message; press `1`–`9` to
+open one in `$EDITOR`. The web UI links them into your editor
+(`--editor vscode|cursor|zed|none`, or `INLOCAL_EDITOR`).
+
 ## Terminal editor keys
 
 | Where | Keys |
 | --- | --- |
 | List | `j`/`k` move, `enter` edit, `/` search, `1`–`4` filter, `n` namespace, `v` compare view, `q` quit |
 | Compare | `f`/`t` pick languages, `w` swap, `m` only missing, `c` copy from the left column |
-| Fields | `j`/`k` field, `J`/`K` next/previous message, `enter` edit, `c` copy from source, `x` clear, `esc` back |
+| Fields | `j`/`k` field, `J`/`K` next/previous message, `enter` edit, `c` copy from source, `x` clear, `1`–`9` open usage, `esc` back |
 | Editing | `enter` keep, `esc` cancel, `alt+enter` new line, `ctrl+u` clear |
 | Anywhere | `ctrl+s` save, `u` undo all unsaved edits, `r` reload from disk |
 
@@ -94,6 +117,7 @@ src/
     jsonedit.rs         format-preserving JSON editor
     checks.rs           lint rules
     session.rs          unsaved edits, issues and filters for editors
+    usages.rs           where messages are used in the source code
   cli/                one module per command
   tui/                ratatui terminal editor
   server.rs           web UI backend (feature `web`)

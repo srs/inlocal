@@ -25,6 +25,7 @@ use crate::core::checks::{self, Issue, LocaleStats};
 
 use crate::browser;
 use crate::core::project::{Edit, FileSet, Format};
+use crate::core::usages::{self, UsageReport};
 use crate::core::{Message, Project};
 
 #[derive(RustEmbed)]
@@ -35,6 +36,14 @@ struct Assets;
 struct AppState {
     project: Arc<Project>,
     changes: broadcast::Sender<()>,
+    editor: String,
+}
+
+pub struct Options {
+    pub port: u16,
+    pub open_browser: bool,
+    /// Which editor "Used in" links open: vscode, cursor, zed or none.
+    pub editor: String,
 }
 
 #[derive(Serialize)]
@@ -47,6 +56,9 @@ struct ProjectInfo<'a> {
     format: Format,
     files: &'a [FileSet],
     git_branch: Option<String>,
+    /// Absolute path the usage file paths are under.
+    root: String,
+    editor: &'a str,
 }
 
 #[derive(Serialize)]
@@ -78,9 +90,9 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 }
 
 /// Start the web editor and block until Ctrl+C.
-pub fn run(project: Project, port: u16, open_browser: bool) -> Result<()> {
+pub fn run(project: Project, options: Options) -> Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(serve(project, port, open_browser))?;
+    runtime.block_on(serve(project, options))?;
 
     // Don't wait for lingering tasks (file watcher, open streams).
     runtime.shutdown_timeout(Duration::from_millis(200));
@@ -88,7 +100,13 @@ pub fn run(project: Project, port: u16, open_browser: bool) -> Result<()> {
     Ok(())
 }
 
-async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
+async fn serve(project: Project, options: Options) -> Result<()> {
+    let Options {
+        port,
+        open_browser,
+        editor,
+    } = options;
+
     let project = Arc::new(project);
     let (changes, _) = broadcast::channel(16);
     let _watcher = watch(&project, changes.clone())?;
@@ -96,11 +114,13 @@ async fn serve(project: Project, port: u16, open_browser: bool) -> Result<()> {
     let state = AppState {
         project: project.clone(),
         changes,
+        editor,
     };
 
     let app = Router::new()
         .route("/api/project", get(project_info))
         .route("/api/messages", get(messages))
+        .route("/api/usages", get(usages))
         .route("/api/save", post(save))
         .route("/api/events", get(events))
         .fallback(static_file)
@@ -197,9 +217,19 @@ async fn project_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         format: p.format,
         files: &p.files,
         git_branch: git_branch(&p.root),
+        root: p.root.display().to_string(),
+        editor: &s.editor,
     };
 
     Json(serde_json::to_value(info).expect("serializable"))
+}
+
+/// Where each message is used in the source code. Scanned on every call,
+/// so it follows code changes; it is fast enough for that.
+async fn usages(State(s): State<AppState>) -> Result<Json<UsageReport>, ApiError> {
+    let catalog = s.project.read_messages()?;
+
+    Ok(Json(usages::scan(&s.project, &catalog)))
 }
 
 async fn messages(State(s): State<AppState>) -> Result<Json<MessagesResponse>, ApiError> {

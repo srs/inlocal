@@ -342,6 +342,9 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    lines.push(Line::raw(""));
+    lines.extend(usage_lines(app));
+
     // Keep the selected field on screen.
     let height = area.height as usize;
     let scroll = selected_line.saturating_sub(height.saturating_sub(4));
@@ -390,6 +393,55 @@ fn with_cursor(input: &TextInput) -> Vec<Span<'static>> {
 /// Show newlines as ⏎ so every value fits on one row.
 fn one_line(text: &str) -> String {
     text.replace('\n', "⏎")
+}
+
+/// "Used in 2 places" and a numbered list; the number opens it.
+fn usage_lines(app: &App) -> Vec<Line<'static>> {
+    let usages = app.current_usages();
+    let root = &app.session.project.root;
+
+    if usages.is_empty() {
+        let dynamic = app
+            .current()
+            .and_then(|m| app.usages.dynamic_prefix_for(&m.id));
+
+        let text = match dynamic {
+            Some(prefix) => format!("Possibly used through a runtime key ({prefix}…)"),
+            None => "Not used in the source code".to_string(),
+        };
+
+        return vec![Line::styled(text, Style::new().fg(DIM))];
+    }
+
+    let title = match usages.len() {
+        1 => "Used in 1 place".to_string(),
+        n => format!("Used in {n} places"),
+    };
+
+    let mut lines = vec![Line::styled(title, Style::new().fg(DIM))];
+
+    for (ix, usage) in usages.iter().take(9).enumerate() {
+        let file = usage.file.strip_prefix(root).unwrap_or(&usage.file);
+
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {} ", ix + 1), Style::new().fg(ACCENT).bold()),
+            Span::raw(format!("{}:{}  ", file.display(), usage.line)),
+            Span::styled(usage.snippet.clone(), Style::new().fg(DIM)),
+        ]));
+    }
+
+    if usages.len() > 9 {
+        lines.push(Line::styled(
+            format!(
+                "   … and {} more (inlocal usages {})",
+                usages.len() - 9,
+                usages[0].id
+            ),
+            Style::new().fg(DIM),
+        ));
+    }
+
+    lines
 }
 
 // -- Compare view -------------------------------------------------------------
@@ -548,7 +600,7 @@ fn draw_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
         }
 
         (Focus::Fields, _) => {
-            "j/k field  J/K message  enter edit  c copy source  x clear  esc back  s save"
+            "j/k field  J/K message  enter edit  c copy source  1-9 open usage  esc back  s save"
         }
 
         (Focus::Editing, _) => "enter keep  esc cancel  alt+enter newline  ctrl+u clear",

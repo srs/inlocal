@@ -3,7 +3,9 @@ import {
   AlertTriangle, CircleDashed, Copy, FileCode2, Folder, GitBranch, ArrowLeftRight, ChevronDown, Languages, LayoutList, List, Pencil, Plus, Radio, Search, Table2, Undo2,
 } from "lucide-react";
 
-import { api, type Edit, type Issue, type Message, type MessagesResponse, type ProjectInfo } from "./api";
+import {
+  api, type Edit, type Issue, type Message, type MessagesResponse, type ProjectInfo, type Usage, type UsageReport,
+} from "./api";
 import { checkField, displayVariant, formatVariable, variables } from "./checks";
 
 type Filter = "all" | "attention" | "missing" | "changed";
@@ -48,6 +50,7 @@ export function App() {
     }
   }, []);
 
+  const [usages, setUsages] = useState<UsageReport | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const editsRef = useRef(edits);
   editsRef.current = edits;
@@ -62,10 +65,21 @@ export function App() {
     }
   }, []);
 
+  // Where messages are used in the code. Scanned again when the window gets
+  // focus, since you were probably just editing code.
+  const loadUsages = useCallback(() => {
+    api.usages().then(setUsages).catch(() => setUsages(null));
+  }, []);
+
   useEffect(() => {
     api.project().then(setProject).catch((e) => setError(String(e.message)));
     reload();
-  }, [reload]);
+    loadUsages();
+
+    window.addEventListener("focus", loadUsages);
+
+    return () => window.removeEventListener("focus", loadUsages);
+  }, [reload, loadUsages]);
 
   // Live reload when files change on disk.
   useEffect(() => {
@@ -74,7 +88,6 @@ export function App() {
     es.onerror = () => setLive(false);
     es.addEventListener("changed", () => {
       if (Object.keys(editsRef.current).length === 0) reload();
-
       else setExternalChange(true);
     });
 
@@ -215,7 +228,6 @@ export function App() {
       const next = { ...prev };
 
       if (value === original(m, locale, variant)) delete next[k];
-
       else next[k] = value;
 
       return next;
@@ -237,6 +249,7 @@ export function App() {
 
     try {
       setData(await api.save(payload));
+      loadUsages();
       setEdits({});
       setExternalChange(false);
       setError(null);
@@ -396,7 +409,6 @@ export function App() {
                     const next = new Set(hidden);
 
                     if (next.has(l)) next.delete(l);
-
                     else next.add(l);
                     setHidden(next);
                   }}
@@ -515,6 +527,8 @@ export function App() {
                 base={base}
                 format={format}
                 issues={issuesById.get(current.id) ?? []}
+                usages={usages}
+                project={project}
                 valueOf={valueOf}
                 isChanged={(l, v) => fieldKey(current.id, v, l) in edits}
                 setField={setField}
@@ -547,6 +561,8 @@ function MessageEditor(props: {
   valueOf: (m: Message, locale: string, variant: string) => string;
   isChanged: (locale: string, variant: string) => boolean;
   setField: (m: Message, locale: string, variant: string, value: string) => void;
+  usages: UsageReport | null;
+  project: ProjectInfo;
 }) {
   const { msg, locales, base, format, issues, valueOf, isChanged, setField } = props;
   const plural = msg.variants.length > 1 || (msg.variants[0] ?? "") !== "";
@@ -613,6 +629,8 @@ function MessageEditor(props: {
       <div className="vars">
         Variables: {vars.length ? vars.map((v) => <span key={v} className="var">{formatVariable(v, format)}</span>) : "none"}
       </div>
+      <UsedIn id={msg.id} report={props.usages} project={props.project} />
+
       <div className="hint">Empty fields are removed from the file on save. Only edited values change on disk.</div>
     </>
   );
@@ -807,4 +825,82 @@ function FilesStatus(props: {
       )}
     </div>
   );
+}
+
+/** Where a message is used in the source code, with links into the editor. */
+function UsedIn(props: { id: string; report: UsageReport | null; project: ProjectInfo }) {
+  const { id, report, project } = props;
+
+  if (!report) return null;
+
+  const usages = report.usages[id] ?? [];
+
+  if (usages.length === 0) {
+    const prefix = report.dynamicPrefixes.find((p) => id.startsWith(p) || id.split(":").pop()!.startsWith(p));
+
+    return (
+      <div className="usages">
+        <div className="usages-title">
+          {prefix ? `Possibly used through a runtime key (${prefix}…)` : "Not used in the source code"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="usages">
+      <div className="usages-title">
+        Used in {usages.length === 1 ? "1 place" : `${usages.length} places`}
+      </div>
+
+      {usages.map((usage, i) => {
+        const href = editorLink(project.editor, usage);
+        const label = `${relativePath(project.root, usage.file)}:${usage.line}`;
+
+        const content = (
+          <>
+            <FileCode2 size={13} />
+            <span className="usage-file mono">{label}</span>
+            <span className="usage-snippet mono">{usage.snippet}</span>
+          </>
+        );
+
+        return href ? (
+          <a key={i} className="usage" href={href} title={`Open in ${project.editor}`}>
+            {content}
+          </a>
+        ) : (
+          <div key={i} className="usage">
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A link that opens the file at the usage in the chosen editor. */
+function editorLink(editor: string, usage: Usage): string | null {
+  // Windows paths need forward slashes and a leading slash in these URLs.
+  let path = usage.file.replaceAll("\\", "/");
+  if (!path.startsWith("/")) path = `/${path}`;
+
+  const location = `${encodeURI(path)}:${usage.line}:${usage.column}`;
+
+  switch (editor) {
+    case "vscode":
+      return `vscode://file${location}`;
+    case "cursor":
+      return `cursor://file${location}`;
+    case "zed":
+      return `zed://file${location}`;
+    default:
+      return null;
+  }
+}
+
+function relativePath(root: string, file: string): string {
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+
+  return file.startsWith(prefix) ? file.slice(prefix.length) : file;
 }
