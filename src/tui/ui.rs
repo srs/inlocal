@@ -191,8 +191,12 @@ fn draw_list(frame: &mut Frame, app: &App, area: Rect) {
 
     let base = &app.session.project.base_locale;
 
-    let items: Vec<ListItem> = app
-        .visible
+    // Only build the rows that fit; each message takes two lines.
+    let fits = (area.height as usize / 2).max(1);
+    let offset = scroll_offset(&app.list_offset, app.selected, fits);
+    let shown = &app.visible[offset..app.visible.len().min(offset + fits)];
+
+    let items: Vec<ListItem> = shown
         .iter()
         .map(|id| {
             let status = app.session.status(id);
@@ -222,8 +226,25 @@ fn draw_list(frame: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items).block(block).highlight_style(highlight);
 
-    let mut state = ListState::default().with_selected(Some(app.selected));
+    let mut state = ListState::default().with_selected(Some(app.selected - offset));
     frame.render_stateful_widget(list, area, &mut state);
+}
+
+/// The first row to draw so `selected` is on screen, moving the remembered
+/// offset as little as possible (so the list doesn't jump around).
+fn scroll_offset(remembered: &std::cell::Cell<usize>, selected: usize, fits: usize) -> usize {
+    let mut offset = remembered.get();
+
+    if selected < offset {
+        offset = selected;
+    }
+
+    if selected >= offset + fits {
+        offset = selected + 1 - fits;
+    }
+
+    remembered.set(offset);
+    offset
 }
 
 fn status_color(status: Status) -> Color {
@@ -246,8 +267,7 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
 
     let base = app.session.project.base_locale.clone();
     let fields = app.fields();
-    let plural =
-        message.variants.len() > 1 || message.variants.first().is_some_and(|v| !v.is_empty());
+    let plural = message.is_plural();
 
     let mut lines: Vec<Line> = vec![
         Line::styled(message.id.clone(), Style::new().bold()),
@@ -258,7 +278,7 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
     let mut selected_line = 0;
 
     for (ix, key) in fields.iter().enumerate() {
-        let first_of_locale = key.variant == message.variants[0];
+        let first_of_locale = ix == 0 || fields[ix - 1].locale != key.locale;
         let selected = ix == app.field && app.focus != Focus::List;
         let editing = selected && app.focus == Focus::Editing;
 
@@ -302,9 +322,7 @@ fn draw_editor(frame: &mut Frame, app: &App, area: Rect) {
             let value = app.session.value(key);
 
             if value.is_empty() {
-                let source = app
-                    .session
-                    .value(&FieldKey::new(&key.id, &key.variant, &base));
+                let source = app.session.source_text(key, &base);
 
                 let placeholder = if source.is_empty() {
                     "—".to_string()
@@ -466,7 +484,18 @@ fn draw_compare(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let table_rows: Vec<Row> = rows.iter().map(|key| compare_row(app, key)).collect();
+    // Only build the rows that fit, below the header line.
+    let fits = (table_area.height as usize).saturating_sub(1).max(1);
+    let offset = scroll_offset(&app.compare_offset, app.row, fits);
+    let shown = &rows[offset..rows.len().min(offset + fits)];
+
+    let editing = (app.focus == Focus::Editing).then_some(app.row - offset);
+
+    let table_rows: Vec<Row> = shown
+        .iter()
+        .enumerate()
+        .map(|(ix, key)| compare_row(app, key, editing == Some(ix)))
+        .collect();
 
     let header = Row::new([
         Cell::from("Key"),
@@ -493,7 +522,7 @@ fn draw_compare(frame: &mut Frame, app: &App, area: Rect) {
         .column_spacing(2)
         .row_highlight_style(highlight);
 
-    let mut state = TableState::default().with_selected(Some(app.row));
+    let mut state = TableState::default().with_selected(Some(app.row - offset));
     frame.render_stateful_widget(table, table_area, &mut state);
 }
 
@@ -522,17 +551,14 @@ fn draw_compare_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(line, area);
 }
 
-fn compare_row<'a>(app: &App, target: &FieldKey) -> Row<'a> {
-    let source = FieldKey::new(&target.id, &target.variant, &app.from);
+fn compare_row<'a>(app: &App, target: &FieldKey, editing: bool) -> Row<'a> {
+    let source = app.session.source_text(target, &app.from);
 
     let key_text = if target.variant.is_empty() {
         target.id.clone()
     } else {
         format!("{} [{}]", target.id, display_variant(&target.variant))
     };
-
-    let is_current = app.current_field().as_ref() == Some(target);
-    let editing = is_current && app.focus == Focus::Editing;
 
     let target_cell = if editing {
         Cell::from(Line::from(with_cursor(&app.editor)))
@@ -551,7 +577,7 @@ fn compare_row<'a>(app: &App, target: &FieldKey) -> Row<'a> {
 
     Row::new([
         Cell::from(key_text).style(Style::new().fg(Color::Gray)),
-        Cell::from(one_line(&app.session.value(&source))),
+        Cell::from(one_line(&source)),
         target_cell,
     ])
 }

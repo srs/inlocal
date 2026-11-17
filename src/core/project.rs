@@ -1,7 +1,7 @@
 //! Reading and writing an inlang project (`project.inlang/settings.json`) and
 //! the translation files it points to.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -510,15 +510,53 @@ pub struct Message {
     pub values: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+impl Message {
+    /// The forms this message has in `locale`: the locale's own when it has
+    /// any (languages differ in plural forms), otherwise the base locale's.
+    pub fn variants_for(&self, locale: &str) -> Vec<String> {
+        match self.values.get(locale) {
+            Some(values) if !values.is_empty() => {
+                let mut variants: Vec<String> = values.keys().cloned().collect();
+                sort_variants(&mut variants);
+
+                variants
+            }
+
+            _ => self.variants.clone(),
+        }
+    }
+
+    pub fn is_plural(&self) -> bool {
+        self.variants.iter().any(|v| !v.is_empty())
+    }
+}
+
+/// The form used when no other matches: `*` (MessageFormat) or `other`.
+pub fn is_catch_all(variant: &str) -> bool {
+    matches!(variant.rsplit('=').next(), Some("*" | "other"))
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Catalog {
     pub messages: Vec<Message>,
+
+    /// Message id -> position in `messages`, for quick lookups.
+    #[serde(skip)]
+    index: HashMap<String, usize>,
 }
 
 impl Catalog {
+    pub fn get(&self, id: &str) -> Option<&Message> {
+        self.index.get(id).map(|&i| &self.messages[i])
+    }
+
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut Message> {
+        self.index.get(id).map(|&i| &mut self.messages[i])
+    }
+
     fn insert(&mut self, id: &str, variant: &str, locale: &str, value: String, is_base: bool) {
-        let msg = match self.messages.iter_mut().position(|m| m.id == id) {
-            Some(i) => &mut self.messages[i],
+        let position = match self.index.get(id) {
+            Some(&i) => i,
             None => {
                 self.messages.push(Message {
                     id: id.to_string(),
@@ -526,9 +564,14 @@ impl Catalog {
                     values: BTreeMap::new(),
                 });
 
-                self.messages.last_mut().expect("just pushed")
+                let i = self.messages.len() - 1;
+                self.index.insert(id.to_string(), i);
+
+                i
             }
         };
+
+        let msg = &mut self.messages[position];
 
         if is_base && !msg.variants.iter().any(|v| v == variant) {
             msg.variants.push(variant.to_string());
@@ -563,12 +606,12 @@ impl Catalog {
 }
 
 fn sort_variants(variants: &mut [String]) {
+    // The CLDR plural categories, then MessageFormat's catch-all `*`.
+    const ORDER: [&str; 7] = ["zero", "one", "two", "few", "many", "other", "*"];
+
     let rank = |v: &str| {
         let cat = v.rsplit('=').next().unwrap_or(v);
-        PLURAL_CATEGORIES
-            .iter()
-            .position(|c| *c == cat)
-            .unwrap_or(PLURAL_CATEGORIES.len())
+        ORDER.iter().position(|c| *c == cat).unwrap_or(ORDER.len())
     };
 
     variants.sort_by_key(|v| rank(v));

@@ -26,6 +26,7 @@ pub fn run(project: &Project, id: Option<&str>, json: bool) -> Result<ExitCode> 
 
     if json {
         println!("{}", serde_json::to_string_pretty(found)?);
+
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -38,6 +39,7 @@ pub fn run(project: &Project, id: Option<&str>, json: bool) -> Result<ExitCode> 
             "'{id}' is not used in {} source file(s)",
             report.files_scanned
         );
+
         return Ok(ExitCode::FAILURE);
     }
 
@@ -48,6 +50,7 @@ pub fn run(project: &Project, id: Option<&str>, json: bool) -> Result<ExitCode> 
 fn summary(report: &UsageReport, catalog: &Catalog, json: bool) -> Result<ExitCode> {
     if json {
         println!("{}", serde_json::to_string_pretty(report)?);
+
         return Ok(ExitCode::SUCCESS);
     }
 

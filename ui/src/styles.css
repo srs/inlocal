@@ -111,7 +111,8 @@ input, textarea { font: inherit; color: inherit; }
 
 .list { border-right: 1px solid var(--border); overflow: auto; }
 .row {
-  padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer;
+  height: 52px; box-sizing: border-box; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
 }
 .row:hover { background: var(--hover); }
 .row.on { background: var(--selected); }
@@ -255,3 +256,5 @@ input, textarea { font: inherit; color: inherit; }
 a.usage:hover { background: var(--hover); color: var(--text); }
 .usage-file { color: var(--accent); flex: none; }
 .usage-snippet { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.table-more { padding: 16px; text-align: center; color: var(--text-3); font-size: 12px; }

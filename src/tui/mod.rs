@@ -39,9 +39,10 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
     while !app.quit {
         terminal.draw(|frame| ui::draw(frame, app))?;
 
-        // Wake up regularly to pick up file changes, even without input.
+        // Wake up regularly to pick up file changes and scan results.
+        app.tick();
+
         if !event::poll(Duration::from_millis(250))? {
-            app.tick();
             continue;
         }
 
@@ -89,6 +90,7 @@ fn open_in_editor(terminal: &mut ratatui::DefaultTerminal, usage: &Usage) -> Res
         "code" | "code-insiders" | "codium" | "cursor" | "windsurf" => {
             vec!["-g".into(), location]
         }
+
         "zed" | "subl" | "hx" | "helix" => vec![location],
         _ => vec![format!("+{}", usage.line), file],
     };
@@ -101,6 +103,7 @@ fn open_in_editor(terminal: &mut ratatui::DefaultTerminal, usage: &Usage) -> Res
     terminal.clear()?;
 
     let status = status.with_context(|| format!("couldn't run '{program}'"))?;
+
     if !status.success() {
         anyhow::bail!("'{program}' exited with {status}");
     }
@@ -134,4 +137,77 @@ fn watch_files(files: Vec<PathBuf>, flag: Arc<AtomicBool>) -> Option<Recommended
     }
 
     Some(watcher)
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{backend::TestBackend, Terminal};
+    use std::time::Instant;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    /// `INLOCAL_BENCH=/path/to/project cargo test --release bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn large_project() {
+        let Ok(path) = std::env::var("INLOCAL_BENCH") else {
+            return;
+        };
+
+        let start = Instant::now();
+        let dir = crate::core::find_project(Path::new(&path)).unwrap();
+        let project = Arc::new(Project::load(&dir).unwrap());
+        let session = Session::load(project).unwrap();
+        let mut app = App::new(session, Arc::new(AtomicBool::new(false)));
+        println!("load: {:?}", start.elapsed());
+
+        let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        let mut frame = |app: &App| {
+            terminal.draw(|f| ui::draw(f, app)).unwrap();
+        };
+
+        let time = |label: &str, app: &mut App, frame: &mut dyn FnMut(&App), keys: &[KeyEvent]| {
+            let start = Instant::now();
+
+            for k in keys {
+                app.on_key(*k);
+                frame(app);
+            }
+
+            let each = start.elapsed() / keys.len() as u32;
+            println!("{label}: {each:?} per key");
+        };
+
+        time(
+            "move in list",
+            &mut app,
+            &mut frame,
+            &[key(KeyCode::Char('j')); 200],
+        );
+
+        time("type in a field", &mut app, &mut frame, &{
+            let mut keys = vec![key(KeyCode::Enter), key(KeyCode::Enter)];
+            keys.extend("Hello world".chars().map(|c| key(KeyCode::Char(c))));
+            keys.push(key(KeyCode::Enter));
+            keys
+        });
+
+        time("search", &mut app, &mut frame, &{
+            let mut keys = vec![key(KeyCode::Esc), key(KeyCode::Char('/'))];
+            keys.extend("text 12".chars().map(|c| key(KeyCode::Char(c))));
+            keys.push(key(KeyCode::Esc));
+            keys
+        });
+
+        time("compare view", &mut app, &mut frame, &{
+            let mut keys = vec![key(KeyCode::Char('v'))];
+            keys.extend([key(KeyCode::Char('j')); 200]);
+            keys.push(key(KeyCode::Char('m')));
+            keys
+        });
+    }
 }

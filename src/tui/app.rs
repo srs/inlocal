@@ -1,7 +1,11 @@
 //! TUI state and key handling. Drawing lives in `ui.rs`.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::core::session::is_missing;
 use crate::core::usages::{Usage, UsageReport};
@@ -64,6 +68,15 @@ pub struct App {
     pub usages: UsageReport,
     pub open_request: Option<Usage>,
 
+    /// The code scan runs in the background; its result arrives here.
+    usage_scan: Option<Receiver<UsageReport>>,
+    last_usage_scan: Option<Instant>,
+
+    /// First row shown in the list and the compare table. Updated while
+    /// drawing, so the selection stays on screen.
+    pub list_offset: Cell<usize>,
+    pub compare_offset: Cell<usize>,
+
     files_changed: Arc<AtomicBool>,
 }
 
@@ -98,6 +111,10 @@ impl App {
             quit: false,
             usages: UsageReport::default(),
             open_request: None,
+            usage_scan: None,
+            last_usage_scan: None,
+            list_offset: Cell::new(0),
+            compare_offset: Cell::new(0),
             files_changed,
         };
 
@@ -142,8 +159,8 @@ impl App {
         let mut keys = Vec::new();
 
         for locale in self.locales() {
-            for variant in &message.variants {
-                keys.push(FieldKey::new(&message.id, variant, &locale));
+            for variant in message.variants_for(&locale) {
+                keys.push(FieldKey::new(&message.id, &variant, &locale));
             }
         }
 
@@ -167,8 +184,8 @@ impl App {
                 continue;
             };
 
-            for variant in &message.variants {
-                let key = FieldKey::new(id, variant, &self.to);
+            for variant in message.variants_for(&self.to) {
+                let key = FieldKey::new(id, &variant, &self.to);
 
                 if self.only_missing && !self.has_missing(&key) {
                     continue;
@@ -200,6 +217,8 @@ impl App {
 
     /// Called regularly from the event loop.
     pub fn tick(&mut self) {
+        self.receive_usages();
+
         if !self.files_changed.swap(false, Ordering::Relaxed) {
             return;
         }
@@ -534,9 +553,7 @@ impl App {
             View::Compare => self.from.clone(),
         };
 
-        let source = self
-            .session
-            .value(&FieldKey::new(&key.id, &key.variant, &source_locale));
+        let source = self.session.source_text(&key, &source_locale);
 
         if key.locale != source_locale && !source.is_empty() {
             self.set_current(source);
@@ -578,8 +595,43 @@ impl App {
         self.rescan_usages();
     }
 
+    /// Start scanning the code in the background, unless a scan is running
+    /// or finished moments ago.
     fn rescan_usages(&mut self) {
-        self.usages = self.session.scan_usages();
+        let recent = self
+            .last_usage_scan
+            .is_some_and(|at| at.elapsed() < Duration::from_secs(3));
+
+        if self.usage_scan.is_some() || recent {
+            return;
+        }
+
+        let scan = self.session.usage_scan_job();
+        let (sender, receiver) = mpsc::channel();
+
+        thread::spawn(move || {
+            let _ = sender.send(scan());
+        });
+
+        self.usage_scan = Some(receiver);
+        self.last_usage_scan = Some(Instant::now());
+    }
+
+    /// Pick up a finished background scan.
+    fn receive_usages(&mut self) {
+        let Some(receiver) = &self.usage_scan else {
+            return;
+        };
+
+        match receiver.try_recv() {
+            Ok(report) => {
+                self.usages = report;
+                self.usage_scan = None;
+            }
+
+            Err(TryRecvError::Disconnected) => self.usage_scan = None,
+            Err(TryRecvError::Empty) => {}
+        }
     }
 
     /// Usages of the selected message.

@@ -227,22 +227,42 @@ async fn project_info(State(s): State<AppState>) -> Json<serde_json::Value> {
 /// Where each message is used in the source code. Scanned on every call,
 /// so it follows code changes; it is fast enough for that.
 async fn usages(State(s): State<AppState>) -> Result<Json<UsageReport>, ApiError> {
-    let catalog = s.project.read_messages()?;
+    let report = blocking(move || {
+        let catalog = s.project.read_messages()?;
 
-    Ok(Json(usages::scan(&s.project, &catalog)))
+        Ok(usages::scan(&s.project, &catalog))
+    })
+    .await?;
+
+    Ok(Json(report))
 }
 
 async fn messages(State(s): State<AppState>) -> Result<Json<MessagesResponse>, ApiError> {
-    Ok(Json(load(&s.project)?))
+    let response = blocking(move || load(&s.project)).await?;
+
+    Ok(Json(response))
 }
 
 async fn save(
     State(s): State<AppState>,
     Json(req): Json<SaveRequest>,
 ) -> Result<Json<MessagesResponse>, ApiError> {
-    s.project.apply_edits(&req.edits)?;
+    let response = blocking(move || {
+        s.project.apply_edits(&req.edits)?;
 
-    Ok(Json(load(&s.project)?))
+        load(&s.project)
+    })
+    .await?;
+
+    Ok(Json(response))
+}
+
+/// Run file and scan work on a blocking thread, so a big project doesn't
+/// stall the server's other requests (like the live-reload stream).
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> anyhow::Result<T> {
+    tokio::task::spawn_blocking(work).await?
 }
 
 fn load(project: &Project) -> anyhow::Result<MessagesResponse> {

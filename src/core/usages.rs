@@ -242,6 +242,7 @@ fn resolve(context: &Context, key: &str, namespace: Option<&str>) -> Option<Stri
 
             // From `useTranslation("ns")`, then i18next's default namespace.
             let preferred = namespace.into_iter().chain(["translation"]);
+
             for ns in preferred {
                 if let Some(id) = known(&format!("{ns}:{key}")) {
                     return Some(id);
@@ -278,11 +279,11 @@ static PARAGLIDE_NAMESPACE_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-static MEMBER_CALL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"([A-Za-z_$][\w$]*)\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"'\n]+)["']\s*\])\s*\("#,
-    )
-    .unwrap()
+/// `m.key` or `m["key"]`, called or not: message functions are often passed
+/// around, as in `{ label: m.settings_title }`.
+static MEMBER_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"([A-Za-z_$][\w$]*)\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"'\n]+)["']\s*\])"#)
+        .unwrap()
 });
 
 /// Paraglide: `m.key()`, `m["key"]()` and directly imported message functions.
@@ -291,6 +292,7 @@ fn paraglide_references(text: &str) -> Vec<Reference> {
 
     // Names the messages object goes by: `m`, plus `import * as x`.
     let mut objects: HashSet<String> = HashSet::from(["m".to_string()]);
+
     for capture in PARAGLIDE_NAMESPACE_IMPORT.captures_iter(text) {
         objects.insert(capture[1].to_string());
     }
@@ -298,7 +300,7 @@ fn paraglide_references(text: &str) -> Vec<Reference> {
     let mut references = Vec::new();
 
     // `m.key(...)` and `m["key"](...)`.
-    for capture in MEMBER_CALL.captures_iter(text) {
+    for capture in MEMBER_ACCESS.captures_iter(text) {
         if !objects.contains(&capture[1]) {
             continue;
         }
@@ -307,15 +309,23 @@ fn paraglide_references(text: &str) -> Vec<Reference> {
             continue;
         };
 
+        // `m` is also a common name for a local variable, as in
+        // `items.map((m) => m.name)`. Only a call looks enough like a message
+        // to report it as undefined when the key doesn't exist.
+        let end = capture.get(0).map_or(0, |m| m.end());
+        let called = text[end..].trim_start().starts_with('(');
+
         references.push(Reference {
             key: key.as_str().to_string(),
             offset: capture.get(0).map_or(0, |m| m.start()),
-            certain: imports_messages,
+            certain: imports_messages && called,
         });
     }
 
     // `import { greeting, bye as farewell } from ".../paraglide/messages"`.
     for capture in PARAGLIDE_IMPORT.captures_iter(text) {
+        let statement = capture.get(0).map_or(0..0, |m| m.range());
+
         for item in capture[1].split(',') {
             let mut parts = item.split(" as ").map(str::trim);
 
@@ -329,9 +339,14 @@ fn paraglide_references(text: &str) -> Vec<Reference> {
             }
 
             let local = local.unwrap_or(key);
-            let call = Regex::new(&format!(r"\b{}\s*\(", regex::escape(local))).unwrap();
+            let name = Regex::new(&format!(r"\b{}\b", regex::escape(local))).unwrap();
 
-            for found in call.find_iter(text) {
+            // Every mention outside the import itself, called or not.
+            for found in name.find_iter(text) {
+                if statement.contains(&found.start()) {
+                    continue;
+                }
+
                 references.push(Reference {
                     key: key.to_string(),
                     offset: found.start(),
@@ -364,6 +379,7 @@ fn t_function_references(text: &str, report: &mut UsageReport) -> Vec<Reference>
             else {
                 continue;
             };
+
             let key = key.as_str();
 
             // A key built at runtime: remember its fixed beginning.
@@ -371,6 +387,7 @@ fn t_function_references(text: &str, report: &mut UsageReport) -> Vec<Reference>
                 if !prefix.is_empty() {
                     report.dynamic_prefixes.push(prefix.to_string());
                 }
+
                 continue;
             }
 
@@ -478,6 +495,7 @@ mod tests {
             r#"{ "baseLocale": "en", "locales": ["en"],
                  "plugin.inlang.messageFormat": { "pathPattern": "./messages/{locale}.json" } }"#,
         );
+
         write(
             d,
             "messages/en.json",
@@ -490,8 +508,11 @@ mod tests {
             "import { m } from './paraglide/messages.js';\n\
              export const A = () => <h1>{m.hello()}</h1>;\n\
              const b = m[\"bye\"]();\n\
-             const c = m.missing_key();\n",
+             const c = m.missing_key();\n\
+             const nav = { label: m.unused_one };\n\
+             const names = items.map((m) => m.name);\n",
         );
+
         write(
             d,
             "src/other.ts",
@@ -517,8 +538,11 @@ mod tests {
         assert_eq!(report.undefined.len(), 1);
         assert_eq!(report.undefined[0].id, "missing_key");
 
+        // Passed around without being called still counts.
+        assert_eq!(report.usages["unused_one"].len(), 1);
+
         let (unused, maybe) = report.unused(&catalog);
-        assert_eq!(unused, vec!["unused_one"]);
+        assert!(unused.is_empty());
         assert!(maybe.is_empty());
     }
 
@@ -535,11 +559,13 @@ mod tests {
                      "common": "./locales/{locale}/common.json",
                      "printers": "./locales/{locale}/printers.json" } } }"#,
         );
+
         write(
             d,
             "locales/en/common.json",
             r#"{ "greeting": "Hi", "items_one": "1", "items_other": "n" }"#,
         );
+
         write(
             d,
             "locales/en/printers.json",

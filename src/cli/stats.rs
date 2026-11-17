@@ -20,45 +20,18 @@ pub fn run(project: &Project, json: bool) -> Result<ExitCode> {
     let catalog = project.read_messages()?;
     let report = checks::run(project, &catalog);
 
-    // Coverage per namespace and locale: total fields minus missing ones.
+    // Coverage per namespace and locale, the same way `check` counts it.
     let mut by_namespace: BTreeMap<String, BTreeMap<String, Coverage>> = BTreeMap::new();
-    let base = &project.base_locale;
 
     for message in &catalog.messages {
-        let namespace = namespace_of(&message.id);
-        let base_values = message.values.get(base);
+        let checked = checks::check_message(project, message);
+        let namespace = by_namespace.entry(namespace_of(&message.id)).or_default();
 
-        let filled_in_base = message
-            .variants
-            .iter()
-            .filter(|v| {
-                base_values
-                    .and_then(|b| b.get(*v))
-                    .is_some_and(|t| !t.is_empty())
-            })
-            .count();
+        for (locale, (translated, total)) in checked.stats {
+            let entry = namespace.entry(locale).or_default();
 
-        for locale in &project.locales {
-            let entry = by_namespace
-                .entry(namespace.clone())
-                .or_default()
-                .entry(locale.clone())
-                .or_default();
-
-            entry.total += filled_in_base;
-        }
-    }
-
-    for (namespace, locales) in by_namespace.iter_mut() {
-        for (locale, coverage) in locales.iter_mut() {
-            let missing = report
-                .issues
-                .iter()
-                .filter(|i| &i.locale == locale && namespace_of(&i.id) == *namespace)
-                .filter(|i| matches!(i.kind, IssueKind::Missing | IssueKind::MissingPlural))
-                .count();
-
-            coverage.translated = coverage.total - missing;
+            entry.translated += translated;
+            entry.total += total;
         }
     }
 

@@ -1,4 +1,7 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode, forwardRef, useCallback, useDeferredValue, useImperativeHandle, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from "react";
+
 import {
   AlertTriangle, CircleDashed, Copy, FileCode2, Folder, GitBranch, ArrowLeftRight, ChevronDown, Languages, LayoutList, List, Pencil, Plus, Radio, Search, Table2, Undo2,
 } from "lucide-react";
@@ -6,7 +9,10 @@ import {
 import {
   api, type Edit, type Issue, type Message, type MessagesResponse, type ProjectInfo, type Usage, type UsageReport,
 } from "./api";
-import { checkField, displayVariant, formatVariable, variables } from "./checks";
+
+import {
+  checkLocale, displayVariant, formatVariable, isPlural, sortVariants, sourceText, variables, variantsFor,
+} from "./checks";
 
 type Filter = "all" | "attention" | "missing" | "changed";
 type Status = "ok" | "warn" | "missing" | "changed";
@@ -52,6 +58,7 @@ export function App() {
 
   const [usages, setUsages] = useState<UsageReport | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<VirtualListHandle>(null);
   const editsRef = useRef(edits);
   editsRef.current = edits;
 
@@ -122,31 +129,42 @@ export function App() {
   );
 
   // Issues per message: server issues, replaced by client checks for edited fields.
+  const messageById = useMemo(
+    () => new Map((data?.messages ?? []).map((m) => [m.id, m])),
+    [data],
+  );
+
   const issuesById = useMemo(() => {
     const map = new Map<string, Issue[]>();
 
     if (!data) return map;
 
+    // Message + locale pairs with unsaved edits get checked here, live.
+    const edited = new Set(Object.keys(edits).map((k) => {
+      const [id, , locale] = k.split(SEP);
+
+      return `${id}${SEP}${locale}`;
+    }));
+
     for (const i of data.issues) {
-      if (fieldKey(i.id, i.variant, i.locale) in edits) continue;
+      if (edited.has(`${i.id}${SEP}${i.locale}`)) continue;
 
       map.set(i.id, [...(map.get(i.id) ?? []), i]);
     }
 
-    for (const k of Object.keys(edits)) {
-      const [id, variant, locale] = k.split(SEP);
-      const msg = data.messages.find((m) => m.id === id);
+    for (const pair of edited) {
+      const [id, locale] = pair.split(SEP);
+      const msg = messageById.get(id);
 
       if (!msg) continue;
 
-      const hasAny = msg.variants.some((v) => v !== variant && valueOf(msg, locale, v));
-      const found = checkField(msg, locale, variant, edits[k], base, format, hasAny);
+      const found = checkLocale(msg, locale, base, format, valueOf);
 
       if (found.length) map.set(id, [...(map.get(id) ?? []), ...found]);
     }
 
     return map;
-  }, [data, edits, base, format, valueOf]);
+  }, [data, edits, base, format, valueOf, messageById]);
 
   const changedIds = useMemo(() => {
     const ids = new Set<string>();
@@ -181,10 +199,26 @@ export function App() {
     [project],
   );
 
+  // Lowercased id and texts per message, computed once per load, so search
+  // doesn't lowercase 100,000 strings on every keystroke.
+  const searchText = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const m of data?.messages ?? []) {
+      const texts = Object.values(m.values).flatMap((v) => Object.values(v));
+      map.set(m.id, [m.id, ...texts].join("\n").toLowerCase());
+    }
+
+    return map;
+  }, [data]);
+
+  // Filtering may lag a little behind typing; the search box itself never does.
+  const deferredQuery = useDeferredValue(query);
+
   const visible = useMemo(() => {
     if (!data) return [];
 
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
 
     return data.messages.filter((m) => {
       if (namespace && !m.id.startsWith(`${namespace}:`)) return false;
@@ -199,11 +233,10 @@ export function App() {
         !issues.some((i) => i.locale === toLocale && (i.kind === "missing" || i.kind === "missingPlural"))) return false;
 
       if (!q) return true;
-      if (m.id.toLowerCase().includes(q)) return true;
 
-      return Object.values(m.values).some((v) => Object.values(v).some((t) => t.toLowerCase().includes(q)));
+      return searchText.get(m.id)?.includes(q) ?? false;
     });
-  }, [data, query, filter, namespace, issuesById, changedIds, view, onlyMissing, toLocale]);
+  }, [data, deferredQuery, searchText, filter, namespace, issuesById, changedIds, view, onlyMissing, toLocale]);
 
   const counts = useMemo(() => {
     const all = data?.messages ?? [];
@@ -306,7 +339,7 @@ export function App() {
         const i = visible.findIndex((m) => m.id === selected);
         const next = visible[Math.max(0, Math.min(visible.length - 1, i + step))];
         setSelected(next.id);
-        document.getElementById(`row-${next.id}`)?.scrollIntoView({ block: "nearest" });
+        listRef.current?.scrollToIndex(visible.indexOf(next));
       }
     };
 
@@ -497,15 +530,19 @@ export function App() {
             </div>
           ) : (
           <>
-          <nav className="list">
-            {visible.length === 0 && <div className="empty">No messages match.</div>}
-            {visible.map((m) => {
+          <VirtualList
+            ref={listRef}
+            className="list"
+            count={visible.length}
+            rowHeight={ROW_HEIGHT}
+            empty={<div className="empty">No messages match.</div>}
+            renderRow={(ix) => {
+              const m = visible[ix];
               const preview = valueOf(m, base, m.variants[m.variants.length - 1] ?? "");
 
               return (
                 <div
                   key={m.id}
-                  id={`row-${m.id}`}
                   className={`row ${m.id === selected ? "on" : ""}`}
                   onClick={() => setSelected(m.id)}
                 >
@@ -513,11 +550,11 @@ export function App() {
                     <span className={`dot ${statusOf(m.id)}`} />
                     <span className="mono">{m.id}</span>
                   </div>
-                  <div className="preview">{preview || " "}</div>
+                  <div className="preview">{preview || " "}</div>
                 </div>
               );
-            })}
-          </nav>
+            }}
+          />
 
           <main className="editor">
             {current ? (
@@ -565,7 +602,7 @@ function MessageEditor(props: {
   project: ProjectInfo;
 }) {
   const { msg, locales, base, format, issues, valueOf, isChanged, setField } = props;
-  const plural = msg.variants.length > 1 || (msg.variants[0] ?? "") !== "";
+  const plural = isPlural(msg);
   const vars = [...new Set(msg.variants.flatMap((v) => variables(valueOf(msg, base, v), format)))];
 
   return (
@@ -582,14 +619,14 @@ function MessageEditor(props: {
         <div key={locale} className="locale-row">
           <span className={`locale-tag ${locale === base ? "base" : ""}`}>{locale}</span>
           <div>
-            {msg.variants.map((variant) => {
+            {variantsFor(msg, locale).map((variant) => {
               const fieldIssues = issues.filter((i) => i.locale === locale && i.variant === variant);
-              const source = valueOf(msg, base, variant);
+              const source = sourceText(msg, variant, base, valueOf);
 
               return (
                 <div key={variant}>
                   <div className={plural ? "variant" : undefined}>
-                    {plural && <span className="variant-name">{displayVariant(variant)}</span>}
+                    {plural && <span className="variant-name">{displayVariant(variant) || "text"}</span>}
                     <AutoField
                       value={valueOf(msg, locale, variant)}
                       changed={isChanged(locale, variant)}
@@ -680,7 +717,33 @@ function TableView(props: {
   setField: (m: Message, locale: string, variant: string, value: string) => void;
   onOpen: (id: string) => void;
 }) {
-  const { messages, locales, base, issuesById, statusOf, valueOf, isChanged, setField, onOpen } = props;
+  const { locales, base, issuesById, statusOf, valueOf, isChanged, setField, onOpen } = props;
+
+  // Rendering every message in every locale at once is too slow for big
+  // projects. Show a page, and add the next one when the end scrolls into view.
+  const [limit, setLimit] = useState(TABLE_PAGE);
+  const sentinel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setLimit(TABLE_PAGE), [props.messages.length, locales.join()]);
+
+  useEffect(() => {
+    const el = sentinel.current;
+
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setLimit((n) => n + TABLE_PAGE);
+      },
+      { rootMargin: "600px" },
+    );
+
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [limit, props.messages.length]);
+
+  const messages = props.messages.slice(0, limit);
 
   if (messages.length === 0) return <div className="table-wrap"><div className="empty">No messages match.</div></div>;
 
@@ -704,14 +767,18 @@ function TableView(props: {
         </thead>
         {messages.map((m) => {
           const issues = issuesById.get(m.id) ?? [];
-          const plural = m.variants.length > 1 || (m.variants[0] ?? "") !== "";
+          const plural = isPlural(m);
+
+          // One row per form any shown locale has; a locale without that
+          // form gets an empty cell.
+          const rows = sortVariants([...new Set(locales.flatMap((l) => variantsFor(m, l)))]);
 
           return (
             <tbody key={m.id} className="msg">
-              {m.variants.map((variant, vi) => (
+              {rows.map((variant, vi) => (
                 <tr key={variant}>
                   {vi === 0 && (
-                    <td className="key-col" rowSpan={m.variants.length}>
+                    <td className="key-col" rowSpan={rows.length}>
                       <button className="key-link" onClick={() => onOpen(m.id)} title="Open in focus view">
                         <span className={`dot ${statusOf(m.id)}`} />
                         <span className="mono">{m.id}</span>
@@ -720,14 +787,16 @@ function TableView(props: {
                     </td>
                   )}
                   {locales.map((l) => {
+                    if (!variantsFor(m, l).includes(variant)) return <td key={l} className="na" />;
+
                     const cellIssues = issues.filter((i) => i.locale === l && i.variant === variant);
-                    const source = valueOf(m, base, variant);
+                    const source = sourceText(m, variant, base, valueOf);
                     const missing = cellIssues.some((i) => i.kind === "missing" || i.kind === "missingPlural");
 
                     return (
                       <td key={l}>
                         <div className="cell">
-                          {plural && <span className="cell-variant">{displayVariant(variant)}</span>}
+                          {plural && <span className="cell-variant">{displayVariant(variant) || "text"}</span>}
                           <AutoField
                             value={valueOf(m, l, variant)}
                             changed={isChanged(m, l, variant)}
@@ -757,6 +826,12 @@ function TableView(props: {
           );
         })}
       </table>
+
+      {limit < props.messages.length && (
+        <div ref={sentinel} className="table-more">
+          Showing {limit} of {props.messages.length}
+        </div>
+      )}
     </div>
   );
 }
@@ -883,6 +958,7 @@ function UsedIn(props: { id: string; report: UsageReport | null; project: Projec
 function editorLink(editor: string, usage: Usage): string | null {
   // Windows paths need forward slashes and a leading slash in these URLs.
   let path = usage.file.replaceAll("\\", "/");
+
   if (!path.startsWith("/")) path = `/${path}`;
 
   const location = `${encodeURI(path)}:${usage.line}:${usage.column}`;
@@ -890,10 +966,13 @@ function editorLink(editor: string, usage: Usage): string | null {
   switch (editor) {
     case "vscode":
       return `vscode://file${location}`;
+
     case "cursor":
       return `cursor://file${location}`;
+
     case "zed":
       return `zed://file${location}`;
+
     default:
       return null;
   }
@@ -904,3 +983,73 @@ function relativePath(root: string, file: string): string {
 
   return file.startsWith(prefix) ? file.slice(prefix.length) : file;
 }
+
+const ROW_HEIGHT = 52;
+const TABLE_PAGE = 100;
+
+interface VirtualListHandle {
+  scrollToIndex: (index: number) => void;
+}
+
+/**
+ * A scrolling list that only renders the rows in view (plus a few around
+ * them). Every row has the same height, which keeps the math simple.
+ */
+const VirtualList = forwardRef<VirtualListHandle, {
+  count: number;
+  rowHeight: number;
+  renderRow: (index: number) => ReactNode;
+  className?: string;
+  empty?: ReactNode;
+}>(function VirtualList(props, ref) {
+  const { count, rowHeight, renderRow, className, empty } = props;
+
+  const container = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [height, setHeight] = useState(800);
+
+  // Follow the container's size.
+  useLayoutEffect(() => {
+    const el = container.current;
+
+    if (!el) return;
+
+    const observer = new ResizeObserver(() => setHeight(el.clientHeight));
+    observer.observe(el);
+    setHeight(el.clientHeight);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    scrollToIndex(index: number) {
+      const el = container.current;
+
+      if (!el || index < 0) return;
+
+      const top = index * rowHeight;
+      const bottom = top + rowHeight;
+
+      if (top < el.scrollTop) el.scrollTop = top;
+      else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
+    },
+  }), [rowHeight]);
+
+  const overscan = 8;
+  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const last = Math.min(count, Math.ceil((scrollTop + height) / rowHeight) + overscan);
+
+  const rows: ReactNode[] = [];
+
+  for (let i = first; i < last; i++) rows.push(renderRow(i));
+
+  return (
+    <nav ref={container} className={className} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+      {count === 0 && empty}
+
+      <div style={{ height: count * rowHeight, position: "relative" }}>
+        <div style={{ position: "absolute", top: first * rowHeight, left: 0, right: 0 }}>{rows}</div>
+      </div>
+    </nav>
+  );
+});
